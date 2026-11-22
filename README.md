@@ -1,2 +1,2 @@
 # VisorQuest
-Visor but Quest
+Visor but Quest (Claude PLEASE FIX THIS GEMINI AND DEEPSEEK DIED TRYING PLEASE)
