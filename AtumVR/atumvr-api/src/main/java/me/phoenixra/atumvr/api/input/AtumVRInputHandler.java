@@ -1,0 +1,99 @@
+package me.phoenixra.atumvr.api.input;
+
+import me.phoenixra.atumvr.api.AtumVRProvider;
+import me.phoenixra.atumvr.api.input.action.AtumVRActionSet;
+import me.phoenixra.atumvr.api.input.device.AtumVRDevice;
+import me.phoenixra.atumvr.api.input.profile.VRInteractionProfileType;
+import org.jetbrains.annotations.NotNull;
+
+import java.util.Collection;
+import java.util.List;
+
+/**
+ * Base class for VR input
+ */
+public interface AtumVRInputHandler {
+
+    /**
+     * Initialize VR input
+     */
+    void init();
+
+    /**
+     * Update input data from VR session
+     */
+    void update();
+
+    /**
+     * Destroy VR input and release all resources attached
+     */
+    void destroy();
+
+
+    /**
+     * Returns all registered action sets.
+     *
+     * @return collection of action sets
+     */
+    Collection<? extends AtumVRActionSet> getActionSets();
+
+    /**
+     * Registers a VR device.
+     *
+     * @param device the device to register
+     */
+    void registerDevice(AtumVRDevice device);
+
+    /**
+     * Gets a device by its ID.
+     *
+     * @param id the device ID
+     * @return the device, or null if not found
+     */
+    AtumVRDevice getDevice(String id);
+
+    /**
+     * Gets a device by ID with type casting.
+     *
+     * @param id    the device ID
+     * @param clazz the expected device class
+     * @param <T>   the device type
+     * @return the device cast to the specified type
+     */
+    default <T extends AtumVRDevice> T getDevice(String id, Class<T> clazz){
+        return (T) getDevice(id);
+    }
+
+    /**
+     * Returns all registered VR devices.
+     *
+     * @return collection of devices
+     */
+    Collection<? extends AtumVRDevice> getDevices();
+
+
+    /**
+     * Get supported interaction profile types by the user's hardware
+     */
+    @NotNull List<VRInteractionProfileType> getSupportedProfileTypes();
+
+    /**
+     * Get supported interaction profile types by the user's hardware of specified kind
+     */
+    default @NotNull List<VRInteractionProfileType> getSupportedProfileTypes(@NotNull VRInteractionProfileType.Kind kind){
+        return getSupportedProfileTypes()
+                .stream()
+                .filter(profile -> profile.getKind() == kind)
+                .toList();
+    }
+
+    /**
+     * Get VR provider associated with this instance
+     *
+     * @return VRProvider
+     */
+    @NotNull
+    AtumVRProvider getVrProvider();
+
+
+}
