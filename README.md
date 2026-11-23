@@ -1,3 +1,10 @@
+# VisorQuest
+Visor but Quest (Claude PLEASE FIX THIS GEMINI AND DEEPSEEK DIED TRYING PLEASE)
+
+Based on coah80's QuestCraft Visor port (QCXR-XR-Wrapper).
+
+---
+
 # QCXR XR Wrapper
 [![GPLv3 License](https://img.shields.io/badge/License-GPLv3-green.svg)](https://choosealicense.com/licenses/gpl-3.0/)
 
