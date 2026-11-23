@@ -1,0 +1,30 @@
+architectury {
+
+    common(rootProject.enabled_platforms.split(","))
+}
+
+loom{
+    accessWidenerPath = project(":visor-api").file("src/main/resources/visor.accesswidener")
+}
+
+dependencies {
+    compileOnly(project(path: ':visor-api', configuration: 'namedElements'))
+
+    compileOnly(project(path: ':visor-core:stubs', configuration: 'namedElements'))
+
+    // @Environment annotation and mixin extras
+    modImplementation(libs.fabric.loader)
+
+    modApi(libs.architectury.lib)
+
+    // ---- LOCAL DEPENDENCY
+    modApi name: 'atumvr-core-quest'
+    // ----
+    //api(libs.atumvr.core)
+
+    //Other mods
+    modCompileOnly(libs.mod.sodium)
+    modCompileOnly(libs.mod.iris) { transitive = false }
+
+
+}
