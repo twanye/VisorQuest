@@ -1,6 +1,5 @@
 # VisorQuest
-Visor but Quest (Claude PLEASE FIX THIS GEMINI AND DEEPSEEK DIED TRYING PLEASE)
-
+Visor But Quest
 Based on coah80's QuestCraft Visor port (QCXR-XR-Wrapper).
 
 ---
