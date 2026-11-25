@@ -37,15 +37,24 @@ Visor/VisorEssentials = latest **Fabric** build on Modrinth listing the target i
 ### Java runtime
 - Today: **one** runtime dir (`runtimes/JRE`) from `…/releases/latest/download/JRE.zip`, resolving to `jre22-6.0.0` = **OpenJDK 22.0.1** [web]; validated by file presence only [read]. Meets Java 17 and 21; **not** Java 25.
 - **P3 – Java 25 runtime.** Add a second JRE (25), chosen per instance from the version JSON's `javaVersion.majorVersion` (`MinecraftMeta`/`VersionInfo` + `Installer.installJVM`); jringo12's experiment does this [web]. Pin each JRE by tag + SHA-1 instead of `latest`.
-- **Blocker:** no upstream Java 25 Android JRE exists: `QuestCraftPlusPlus/android-openjdk-build-multiarch` branches stop at `buildjre24` [web]. jringo12 ships a `JRE-25.zip` (~61 MB) of unknown provenance [web].
+- **Blocker (eased 2026-11-25):** no *QuestCraft* Java 25 Android JRE exists: `QuestCraftPlusPlus/android-openjdk-build-multiarch` branches stop at `buildjre24` [web]. jringo12 ships a `JRE-25.zip` (~61 MB) of unknown provenance [web]. **Buildable source:** [FCL-Team/Android-OpenJDK-Build `Build_JRE_25`](https://github.com/FCL-Team/Android-OpenJDK-Build/tree/Build_JRE_25) builds JRE 25 for Android (aarch64/aarch32/x86_64) with NDK r28 and a JDK 24 boot JDK; it is FoldCraftLauncher's runtime [web]. Build our own from it so provenance is known [untested on Quest].
 - JVM flags `-XX:+UseZGC -XX:+ZGenerational` [read]: on newer JDKs `ZGenerational` is deprecated/obsolete [memory]; whether a Java 25 build tolerates it is **unknown** [untested]. Fallback: `-XX:+IgnoreUnrecognizedVMOptions` or drop the flag per runtime.
 
 ### LWJGL
 - Pojlib skips every Mojang `lwjgl*` library and supplies its own fat jar + `liblwjgl*.so` natives [read], so **LWJGL is ours to match per MC version**.
 - 1.20.5 → 1.21.11: Mojang uses 3.3.3 [web]; Pojlib's 3.3.3-snapshot matches. 1.20.5+ adds `lwjgl-freetype`: Pojlib ships the jar but no `liblwjgl_freetype.so`; upstream runs 1.20.6–1.21.11 anyway, so probably loaded lazily or unneeded (unverified).
-- **P4 – LWJGL 3.4.x.** Keep 3.3.3 for ≤1.21.11; build 3.4.1 (26.1–26.2) and 3.4.3 (26.3) Pojav-style jars, `lwjgl-glfw-classes.jar` equivalents and arm64 natives. In 3.4.1 `CallbackI` gained abstract methods, which **breaks `lwjgl-openxr-quest-3.3.3.jar`**; use official `lwjgl-openxr` 3.4.x plus a small jar with the 13 Android-only OpenXR classes (QuestCraftPlus approach) [web]. So one bundle cannot serve both families; ship per-version bundles keyed by the version table.
+- **P4 – LWJGL 3.4.x.** Keep 3.3.3 for ≤1.21.11; build 3.4.1 (26.1–26.2) and 3.4.3 (26.3) Pojav-style jars, `lwjgl-glfw-classes.jar` equivalents and arm64 natives. In 3.4.1 `CallbackI` gained abstract methods, which **breaks `lwjgl-openxr-quest-3.3.3.jar`**; use official `lwjgl-openxr` 3.4.x plus a small jar with the 13 Android-only OpenXR classes (QuestCraftPlus approach) [web]. See **§2a** for the working reference. So one bundle cannot serve both families; ship per-version bundles keyed by the version table.
 - **P6 – Vulkan libraries (26.2+).** The JSON adds `lwjgl-vulkan`, `-shaderc`, `-spvc`, `-vma`, and `lwjgl:unsafe` replaces core `lwjgl` [web]. Vulkan is experimental with OpenGL default in 26.2 [web]; force OpenGL (`preferredGraphicsBackend:"opengl"` in `options.txt`) and make sure class loading doesn't need missing natives.
 - **P7 – SDL3 (26.3).** 26.3 drops `lwjgl-glfw` for `lwjgl-sdl` [web]. Pojlib's window/input layer is a **GLFW stub** (`jre_lwjgl3glfw/.../org/lwjgl/glfw/GLFW.java`, `CallbackBridge`, `input_bridge_v3.c`) [read], so it needs an SDL3 equivalent. No Quest port of 26.3 has been found.
+
+### 2a. Reference: QuestCraftPlus+ (working 26.2 on Quest)
+[MisterEnglishDev/QuestCraftPlus](https://github.com/MisterEnglishDev/QuestCraftPlus) is an independent QuestCraft rebuild that runs **Minecraft 26.2** on Quest (APK `com.questcraftplus.qcxr`, installs beside stock QuestCraft). Tucker uses it to play servers, so it is a known-good comparison on real hardware [user-reported]. What it does [web]:
+- **Fixes the LWJGL 3.4.1 `CallbackI` ABI break** (`XrDebugUtilsMessengerCallbackEXTI` no longer satisfies `CallbackI`). The ~13 Android-only classes from QuestCraft's custom bindings (`KHR_android_create_instance`, `KHR_loader_init_android`, `KHR_opengl_es_enable`) go in a small standalone jar; everything else uses official `org.lwjgl:lwjgl-openxr`. The classes have no natives; entry points resolve at runtime from QuestCraft's `libopenxr_loader.so` (which VisorQuest's Pojlib now has). This answers open question 2 for 26.x.
+- **Pojlib:** [MrEnglish1996/QuestCraftPlus-Pojlib](https://github.com/MrEnglish1996/QuestCraftPlus-Pojlib), branched from `QuestCraft-6.0.1` with the mod-config + OpenXR dependency fix. Diff it against our `import/pojlib` to lift P4 (and see how it handles P3/P5).
+- **VR mod:** [MrEnglish1996/QuestCraftPlus-VivecraftMod](https://github.com/MrEnglish1996/QuestCraftPlus-VivecraftMod) merges QuestCraft's Android OpenXR provider onto upstream Vivecraft's `openxr` branch (26.2, Vulkan-ready). VisorQuest uses Visor, not Vivecraft, so only the Android provider pattern (`DeviceCompat.Mobile`, `VLoader`/EGL bridge) carries over to the AtumVR port (P1).
+- **Wrapper:** unmodified `QCXR-XR-Wrapper` except a debug key and headless build script. Build needs Unity `2022.3.62f3`, NDK `26.1.10909125`, JDK 17+.
+- **Licensing:** Pojlib/Vivecraft LGPL-3.0; extracted LWJGL classes BSD-3. Reuse with attribution.
+- Not covered: 26.3 (SDL3), Visor/AtumVR.
 
 ### Fabric loader
 - Today: newest from `meta.fabricmc.net` (0.20.1 on 2026-11-23, meets every minimum below) via a buggy selector that ignores `stable` [read]. meta.fabricmc.net offers every loader for every target, so it sets no minimum itself.
@@ -128,7 +137,7 @@ A version stays labelled *untested* until all pass on a Quest: game reaches main
 ## 7. Other open questions
 
 1. **LFS natives:** can we pull them from coah80/Pojlib or QuestCraftPlusPlus/Pojlib (not verified; cross-repo check refused), and is there enough LFS quota?
-2. **Provenance of `lwjgl-openxr-quest-3.3.3.jar`**; rebuild for 3.4.x, or use the "13 Android classes + official lwjgl-openxr" split?
+2. **Provenance of `lwjgl-openxr-quest-3.3.3.jar`** (still open for ≤1.21.11). For 26.x, take the "13 Android classes + official lwjgl-openxr" split, which QuestCraftPlus+ ships working on 26.2 (§2a).
 3. **Renderer capability:** do `libltw.so` / MobileGlues support what Visor's renderer needs (FBO/texture formats) on Quest 2 vs Quest 3?
 4. **Vulkan on Quest (26.2+)** and Mojang's plan to make Vulkan default in 26.4: decides how long "force OpenGL" keeps working.
 5. **Licensing:** Visor MPL-2.0, VisorEssentials LGPL-3.0-only, `libltw.so` PolyForm Shield; check before any public release.
@@ -156,4 +165,6 @@ A version stays labelled *untested* until all pass on a Quest: game reaches main
 - 26.2 Vulkan (experimental, OpenGL default): https://www.minecraft.net/en-us/article/minecraft-java-edition-26-2, https://www.minecraft.net/en-us/article/minecraft-26-2-snapshot-8
 - 26.3 SDL3 replaces GLFW: https://www.minecraft.net/en-us/article/minecraft-26-3-snapshot-4, https://www.minecraft.net/en-us/article/minecraft-java-edition-26-3
 - LWJGL 3.4.1 `CallbackI` break + Android OpenXR class split: https://github.com/MisterEnglishDev/QuestCraftPlus/blob/main/docs/PORTING_NOTES.md
+- QuestCraftPlus+ overview and repos: https://github.com/MisterEnglishDev/QuestCraftPlus
+- Android JRE 25 build scripts: https://github.com/FCL-Team/Android-OpenJDK-Build/tree/Build_JRE_25
 - Per-version JRE selection / JRE-25 asset: https://github.com/jringo12/questcraft-26.2-experiment (`Pojlib/src/main/java/pojlib/install/Installer.java`)
