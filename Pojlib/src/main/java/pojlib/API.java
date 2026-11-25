@@ -15,12 +15,15 @@ import pojlib.account.MinecraftAccount;
 import pojlib.util.JREUtils;
 import pojlib.util.GsonUtils;
 import pojlib.install.Installer;
+import pojlib.install.VisorVersionTable;
 import pojlib.util.Logger;
+import pojlib.util.FileUtil;
 import pojlib.util.download.DownloadManager;
 import pojlib.util.json.MinecraftInstances;
 import pojlib.util.Constants;
 import pojlib.account.LoginHelper;
 
+import java.io.File;
 import java.io.IOException;
 import java.net.HttpURLConnection;
 import java.net.URL;
@@ -101,7 +104,33 @@ public class API {
     }
 
     public static String[] getQCSupportedVersions(Activity ctx) {
-        return new String[] {"1.20.1"};
+        try {
+            return VisorVersionTable.load(ctx).getSupportedVersions();
+        } catch (IOException | RuntimeException exception) {
+            Logger.getInstance().appendToLog("Failed to load supported Visor versions: " + exception);
+            return new String[0];
+        }
+    }
+
+    /**
+     * Restore the expected permissions on files inside installed Minecraft instances.
+     * Called by the Unity launcher through JNI; the boolean result is part of that API.
+     */
+    public static boolean fixDataPermissions() {
+        try {
+            if (Constants.USER_HOME == null) {
+                throw new IOException("Pojlib data directory has not been initialized");
+            }
+            File instancesDirectory = new File(Constants.USER_HOME, "instances");
+            if (!instancesDirectory.exists()) {
+                return true;
+            }
+            FileUtil.fixDirectoryPermissions(instancesDirectory);
+            return true;
+        } catch (IOException | SecurityException | UnsupportedOperationException exception) {
+            Logger.getInstance().appendToLog("Couldn't fix directory permissions! | " + exception);
+            return false;
+        }
     }
 
     /**
