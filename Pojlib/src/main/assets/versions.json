@@ -11,7 +11,8 @@
         "version": "0.4.0+questcraft",
         "assetPath": "mods/Visor.jar",
         "sha1": "37506cdd6e24b9e9532a2b7963a5f558cedfdbdd",
-        "downloadLink": "bundled://visor"
+        "downloadLink": "bundled://visor",
+        "type": "mod"
       },
       "visorEssentials": {
         "slug": "VisorEssentials",
@@ -19,7 +20,8 @@
         "version": "0.4.0",
         "assetPath": "mods/VisorEssentials.jar",
         "sha1": "ab91a88e5d83bb7def169267006fdf391b40bbf8",
-        "downloadLink": "bundled://visor-essentials"
+        "downloadLink": "bundled://visor-essentials",
+        "type": "mod"
       },
       "bundledMods": [
         {

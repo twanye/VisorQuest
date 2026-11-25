@@ -359,7 +359,9 @@ public class Installer {
         project.slug = artifact.slug;
         project.version = artifact.version;
         project.download_link = artifact.downloadLink;
-        project.type = artifact.type;
+        if (artifact.type != null && !artifact.type.trim().isEmpty()) {
+            project.type = artifact.type;
+        }
         return project;
     }
 

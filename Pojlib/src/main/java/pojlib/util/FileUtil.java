@@ -215,30 +215,83 @@ public class FileUtil {
      * Restores the file permissions used by the launcher for installed instance files.
      * Symbolic links are not followed and directory permissions are left unchanged.
      */
-    public static void fixDirectoryPermissions(File targetDir) throws IOException {
-        if (targetDir == null || !targetDir.exists()) return;
-        if (!targetDir.isDirectory()) throw new IOException("Instance data path is not a directory: " + targetDir);
+    public static int fixDirectoryPermissions(File targetDir) throws IOException {
+        if (targetDir == null || !targetDir.exists()) return 0;
+        if (!targetDir.isDirectory() || !targetDir.canRead()) {
+            throw new IOException("Instance data path is not a usable directory: " + targetDir);
+        }
 
-        final Set<PosixFilePermission> expectedPermissions = EnumSet.of(
-                PosixFilePermission.OWNER_READ,
-                PosixFilePermission.OWNER_WRITE,
-                PosixFilePermission.OWNER_EXECUTE,
-                PosixFilePermission.GROUP_READ,
-                PosixFilePermission.GROUP_WRITE
-        );
-
+        final int[] failedFiles = {0};
         Files.walkFileTree(targetDir.toPath(), EnumSet.noneOf(FileVisitOption.class), 12,
                 new SimpleFileVisitor<Path>() {
                     @Override
-                    public FileVisitResult visitFile(Path file, BasicFileAttributes attributes) throws IOException {
-                        if (attributes.isRegularFile()) {
+                    public FileVisitResult visitFile(Path file, BasicFileAttributes attributes) {
+                        if (!attributes.isRegularFile()) {
+                            return FileVisitResult.CONTINUE;
+                        }
+
+                        boolean executable = requiresExecutePermission(targetDir.toPath().relativize(file));
+                        Set<PosixFilePermission> expectedPermissions = EnumSet.of(
+                                PosixFilePermission.OWNER_READ,
+                                PosixFilePermission.OWNER_WRITE,
+                                PosixFilePermission.GROUP_READ,
+                                PosixFilePermission.GROUP_WRITE
+                        );
+                        if (executable) {
+                            expectedPermissions.add(PosixFilePermission.OWNER_EXECUTE);
+                        }
+
+                        try {
                             Set<PosixFilePermission> currentPermissions = Files.getPosixFilePermissions(file);
                             if (!currentPermissions.equals(expectedPermissions)) {
                                 Files.setPosixFilePermissions(file, expectedPermissions);
                             }
+                        } catch (IOException | UnsupportedOperationException | SecurityException posixFailure) {
+                            if (!setFallbackPermissions(file.toFile(), executable)) {
+                                failedFiles[0]++;
+                            }
                         }
                         return FileVisitResult.CONTINUE;
                     }
+
+                    @Override
+                    public FileVisitResult visitFileFailed(Path file, IOException exception) throws IOException {
+                        if (file.equals(targetDir.toPath())) {
+                            throw exception;
+                        }
+                        failedFiles[0]++;
+                        return FileVisitResult.CONTINUE;
+                    }
                 });
+        Logger.getInstance().appendToLog("Permission repair completed; files failed: " + failedFiles[0]);
+        return failedFiles[0];
+    }
+
+    private static boolean requiresExecutePermission(Path relativePath) {
+        String fileName = relativePath.getFileName() == null
+                ? ""
+                : relativePath.getFileName().toString().toLowerCase(java.util.Locale.ROOT);
+        if (fileName.endsWith(".so")) {
+            return true;
+        }
+        for (Path component : relativePath) {
+            if ("bin".equalsIgnoreCase(component.toString())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean setFallbackPermissions(File file, boolean executable) {
+        try {
+            boolean success = file.setReadable(true, true);
+            success = file.setWritable(true, true) && success;
+            if (executable) {
+                success = file.setExecutable(true, true) && success;
+            }
+            return success;
+        } catch (SecurityException exception) {
+            return false;
+        }
     }
 }
