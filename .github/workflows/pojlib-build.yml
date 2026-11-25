@@ -44,19 +44,18 @@ jobs:
           done < <(git ls-files '*.so')
           exit $bad
 
-      - name: Set up JDK 8 (lwjgl jar toolchain), 17 (sdkmanager) and 11 (Android Gradle Plugin 7.4, default)
+      # JDK 17 is the default: libs/unity-classes.jar is compiled for Java 17 (class version 61).
+      # JDK 8 is for the jre_lwjgl3glfw toolchain.
+      - name: Set up JDK 8 and JDK 17 (default)
         uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: |
             8
             17
-            11
 
       - name: Install Android SDK parts (NDK r26b, build-tools 30.0.3, platform 34)
         working-directory: .
-        env:
-          JAVA_HOME: ${{ env.JAVA_HOME_17_X64 }}
         run: |
           SDKM="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
           yes | "$SDKM" --licenses > /dev/null || true
@@ -68,7 +67,7 @@ jobs:
       - name: Build AAR (debug + release)
         run: |
           chmod +x ./gradlew
-          ./gradlew assemble --stacktrace -Porg.gradle.java.installations.fromEnv=JAVA_HOME_8_X64,JAVA_HOME_11_X64
+          ./gradlew assemble --stacktrace -Porg.gradle.java.installations.fromEnv=JAVA_HOME_8_X64,JAVA_HOME_17_X64
 
       - name: Upload AAR
         uses: actions/upload-artifact@v4
