@@ -12,38 +12,65 @@ import java.io.*;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.file.Files;
+import java.nio.file.StandardCopyOption;
 import java.util.Objects;
 import javax.annotation.Nullable;
 
 public class DownloadUtils {
-    private static void download(URL url, OutputStream os, long size) throws IOException {
-        final int MAX_RETRIES = 3;
-        int attempts = 0;
+    private static final int MAX_RETRIES = 3;
+    private static final int CONNECT_TIMEOUT_MS = 10000;
+    private static final int READ_TIMEOUT_MS = 30000;
 
-        while (true) {
+    private static void download(URL url, OutputStream os, long size) throws IOException {
+        IOException failure = null;
+
+        for (int attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+            HttpURLConnection conn = null;
             try {
-                HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                conn = (HttpURLConnection) url.openConnection();
                 conn.setRequestProperty("User-Agent", "QuestCraft");
-                conn.setConnectTimeout(10000);
+                conn.setConnectTimeout(CONNECT_TIMEOUT_MS);
+                conn.setReadTimeout(READ_TIMEOUT_MS);
                 conn.setDoInput(true);
                 conn.connect();
 
-                if (conn.getResponseCode() == HttpURLConnection.HTTP_OK) {
-                    if(size == -1) {
-                        size = conn.getContentLengthLong();
+                int responseCode = conn.getResponseCode();
+                if (responseCode != HttpURLConnection.HTTP_OK) {
+                    // Previously a non-200 response fell through and re-issued the
+                    // request in a tight loop forever: one 404 asset hung the whole
+                    // "Checking assets" stage until Android killed the app.
+                    failure = new IOException("HTTP " + responseCode + " for " + url);
+                    if (responseCode >= 400 && responseCode < 500
+                            && responseCode != 408 && responseCode != 429) {
+                        // Permanent error, retrying cannot help.
+                        break;
                     }
-
-                    try (InputStream is = new StreamDL(conn.getInputStream(), size)) {
-                        IOUtils.copy(is, os);
-                    }
-                    return;
+                    continue;
                 }
+
+                if (size == -1) {
+                    size = conn.getContentLengthLong();
+                }
+
+                try (InputStream is = new StreamDL(conn.getInputStream(), size)) {
+                    IOUtils.copy(is, os);
+                }
+                return;
             } catch (IOException e) {
-                if (++attempts >= MAX_RETRIES || e instanceof SSLException) {
-                    throw new IOException("Unable to download from " + url, e);
+                failure = e;
+                if (e instanceof SSLException) {
+                    break;
+                }
+            } finally {
+                if (conn != null) {
+                    // Thousands of asset requests share one process; leaking
+                    // connections exhausts sockets/file descriptors.
+                    conn.disconnect();
                 }
             }
         }
+
+        throw new IOException("Unable to download from " + url, failure);
     }
 
     public static void downloadFile(String url, File out) throws IOException {
@@ -56,16 +83,12 @@ public class DownloadUtils {
         try {
             try (OutputStream bos2 = new BufferedOutputStream(Files.newOutputStream(tempOut.toPath()))) {
                 download(new URL(url), bos2, size);
-                tempOut.renameTo(out);
-                bos2.close();
-                if (tempOut.exists()) tempOut.delete();
-            } catch (IOException th2) {
-                if (tempOut.exists()) tempOut.delete();
-                throw th2;
             }
-        } catch (IOException e) {
+            // renameTo() can fail silently, leaving the caller with a missing or
+            // stale file that is then re-downloaded on every attempt.
+            Files.move(tempOut.toPath(), out.toPath(), StandardCopyOption.REPLACE_EXISTING);
+        } finally {
             if (tempOut.exists()) tempOut.delete();
-            throw e;
         }
     }
 

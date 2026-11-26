@@ -26,6 +26,8 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.StringJoiner;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.Future;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
@@ -38,6 +40,9 @@ public class Installer {
 
     private static final String IMMEDIATELY_FAST_URL = "https://cdn.modrinth.com/data/5ZwdcRci/versions/iwYUrQJO/ImmediatelyFast-Fabric-1.5.5%2B1.20.4.jar";
     private static final String IMMEDIATELY_FAST_SHA1 = "9f0110b60dc752ca093f2fc10a72d221b6dc8ac3";
+
+    private static final int ASSET_DOWNLOAD_THREADS = 8;
+    private static final int ASSET_DOWNLOAD_ATTEMPTS = 5;
 
     private static final String[] REQUIRED_JRE_FILES = {
             "bin/java",
@@ -208,25 +213,59 @@ public class Installer {
     public static CompletableFuture<String> installAssets(VersionInfo minecraftVersionInfo, String gameDir) throws IOException {
         return CompletableFuture.supplyAsync(() -> {
             Logger.getInstance().appendToLog("Checking assets");
+            if (minecraftVersionInfo.assetIndex == null || minecraftVersionInfo.assetIndex.url == null) {
+                throw new CompletionException(new IOException(
+                        "Version " + minecraftVersionInfo.id + " has no asset index"));
+            }
+
             JsonObject assets = APIHandler.getFullUrl(minecraftVersionInfo.assetIndex.url, JsonObject.class);
+            if (assets == null || !assets.has("objects") || !assets.get("objects").isJsonObject()) {
+                throw new CompletionException(new IOException(
+                        "Unable to read the asset index from " + minecraftVersionInfo.assetIndex.url));
+            }
+            JsonObject objects = assets.getAsJsonObject("objects");
+            Logger.getInstance().appendToLog("Asset index lists " + objects.size() + " objects");
 
-            for (Map.Entry<String, JsonElement> entry : assets.getAsJsonObject("objects").entrySet()) {
+            for (Map.Entry<String, JsonElement> entry : objects.entrySet()) {
                 VersionInfo.Asset asset = new Gson().fromJson(entry.getValue(), VersionInfo.Asset.class);
-                DownloadManager.addTotalBytes(asset.size);
+                if (asset != null) {
+                    DownloadManager.addTotalBytes(asset.size);
+                }
             }
 
-            ThreadPoolExecutor tp = new ThreadPoolExecutor(8, 8, 100, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<>());
-
-            for (Map.Entry<String, JsonElement> entry : assets.getAsJsonObject("objects").entrySet()) {
-                AsyncDownload thread = new AsyncDownload(entry, gameDir);
-                tp.execute(thread);
-            }
-
-            tp.shutdown();
+            // Failures are collected instead of thrown from the worker threads:
+            // an uncaught exception on a pool thread kills the whole app process
+            // on Android (no stack trace in latestlog, no launcher error dialog).
+            ConcurrentLinkedQueue<String> failures = new ConcurrentLinkedQueue<>();
+            ThreadPoolExecutor tp = new ThreadPoolExecutor(ASSET_DOWNLOAD_THREADS, ASSET_DOWNLOAD_THREADS,
+                    100, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<>());
             try {
+                for (Map.Entry<String, JsonElement> entry : objects.entrySet()) {
+                    tp.execute(new AsyncDownload(entry, gameDir, failures));
+                }
+                tp.shutdown();
                 while (!tp.awaitTermination(100, TimeUnit.MILLISECONDS)) ;
             } catch (InterruptedException e) {
-                Logger.getInstance().appendToLog("Download thread interrupted" + e.getMessage());
+                Thread.currentThread().interrupt();
+                failures.add("asset download interrupted: " + e.getMessage());
+                Logger.getInstance().appendToLog("Download thread interrupted", e);
+            } finally {
+                tp.shutdownNow();
+            }
+
+            if (!failures.isEmpty()) {
+                StringBuilder message = new StringBuilder();
+                message.append(failures.size()).append(" asset(s) could not be downloaded:");
+                int shown = 0;
+                for (String failure : failures) {
+                    message.append("\n  ").append(failure);
+                    if (++shown >= 10) {
+                        message.append("\n  ...");
+                        break;
+                    }
+                }
+                Logger.getInstance().appendToLog(message.toString());
+                throw new CompletionException(new IOException(message.toString()));
             }
 
             File indexJson = new File(gameDir + "/assets/indexes/" + minecraftVersionInfo.assets + ".json");
@@ -234,7 +273,7 @@ public class Installer {
                 try {
                     DownloadUtils.downloadFile(minecraftVersionInfo.assetIndex.url, indexJson);
                 } catch (IOException e) {
-                    e.printStackTrace();
+                    Logger.getInstance().appendToLog("Could not write the asset index to " + indexJson, e);
                 }
             }
 
@@ -427,36 +466,55 @@ public class Installer {
         private final Map.Entry<String, JsonElement> entry;
         private final String gameDir;
         private final String fileName;
+        private final ConcurrentLinkedQueue<String> failures;
 
-        public AsyncDownload(Map.Entry<String, JsonElement> entry, String gameDir) {
+        public AsyncDownload(Map.Entry<String, JsonElement> entry, String gameDir, ConcurrentLinkedQueue<String> failures) {
             this.entry = entry;
             this.gameDir = gameDir;
             this.fileName = entry.getKey();
+            this.failures = failures;
         }
 
         @Override
         public void run() {
-            VersionInfo.Asset asset = new Gson().fromJson(entry.getValue(), VersionInfo.Asset.class);
-            String path = asset.hash.substring(0, 2) + "/" + asset.hash;
-            File assetFile = new File(gameDir + "/assets/objects/", path);
+            try {
+                VersionInfo.Asset asset = new Gson().fromJson(entry.getValue(), VersionInfo.Asset.class);
+                if (asset == null || asset.hash == null || asset.hash.length() < 2) {
+                    failures.add(fileName + " (no hash in the asset index)");
+                    Logger.getInstance().appendToLog("Skipping asset without a hash: " + fileName);
+                    return;
+                }
+                String path = asset.hash.substring(0, 2) + "/" + asset.hash;
+                File assetFile = new File(gameDir + "/assets/objects/", path);
 
-            for (int i = 0; i < 5; i++) {
-                if (i == 4) throw new RuntimeException(String.format("Asset download of %s failed after 5 retries", fileName));
-
-                if (!assetFile.exists()) {
-                    Logger.getInstance().appendToLog("Downloading: " + fileName);
+                for (int attempt = 1; attempt <= ASSET_DOWNLOAD_ATTEMPTS; attempt++) {
+                    if (assetFile.isFile() && DownloadUtils.compareSHA1(assetFile, asset.hash)) {
+                        return;
+                    }
+                    if (assetFile.exists()) {
+                        assetFile.delete();
+                    }
                     try {
+                        Logger.getInstance().appendToLog("Downloading: " + fileName);
                         DownloadUtils.downloadFile(Constants.MOJANG_RESOURCES_URL + "/" + path, assetFile, 0);
                     } catch (IOException e) {
-                        throw new RuntimeException(e);
+                        Logger.getInstance().appendToLog(
+                                "Asset download attempt " + attempt + "/" + ASSET_DOWNLOAD_ATTEMPTS
+                                        + " failed for " + fileName, e);
                     }
                 }
 
-                if (DownloadUtils.compareSHA1(assetFile, asset.hash)) {
-                    break;
-                } else {
-                    assetFile.delete();
+                if (assetFile.isFile() && DownloadUtils.compareSHA1(assetFile, asset.hash)) {
+                    return;
                 }
+                failures.add(fileName);
+                Logger.getInstance().appendToLog("Giving up on asset " + fileName + " after "
+                        + ASSET_DOWNLOAD_ATTEMPTS + " attempts");
+            } catch (Throwable t) {
+                // Never let a worker die with an uncaught exception: on Android that
+                // kills the process and the crash never reaches latestlog.
+                failures.add(fileName + " (" + t + ")");
+                Logger.getInstance().appendToLog("Unhandled error while downloading asset " + fileName, t);
             }
         }
     }

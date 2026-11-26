@@ -5,6 +5,8 @@ import androidx.annotation.Keep;
 import java.io.File;
 import java.io.IOException;
 import java.io.PrintStream;
+import java.io.PrintWriter;
+import java.io.StringWriter;
 import java.lang.ref.WeakReference;
 
 /** Singleton class made to log on one file
@@ -49,14 +51,32 @@ public class Logger {
         appendToLogUnchecked(text);
     }
 
+    /** Print the text and the stack trace of a failure to the log file */
+    public void appendToLog(String text, Throwable throwable){
+        if(shouldCensorLog(text)) return;
+        if(throwable == null) {
+            appendToLogUnchecked(text);
+            return;
+        }
+        StringWriter trace = new StringWriter();
+        throwable.printStackTrace(new PrintWriter(trace));
+        appendToLogUnchecked(text + "\n" + trace);
+    }
+
     /** Print the text to the log file, no china censoring there */
-    public void appendToLogUnchecked(String text){
-        mLogStream.println(text);
+    public synchronized void appendToLogUnchecked(String text){
+        // Never let logging itself take down the caller (e.g. a download worker
+        // when storage is full and the stream could not be opened).
+        try {
+            if (mLogStream != null) mLogStream.println(text);
+        } catch (RuntimeException e) {
+            e.printStackTrace();
+        }
         notifyLogListener(text);
     }
 
     /** Reset the log file, effectively erasing any previous logs */
-    public void reset(){
+    public synchronized void reset(){
         try{
             mLogFile.delete();
             mLogFile.createNewFile();
@@ -65,8 +85,8 @@ public class Logger {
     }
 
     /** Disables the printing */
-    public void shutdown(){
-        mLogStream.close();
+    public synchronized void shutdown(){
+        if (mLogStream != null) mLogStream.close();
     }
 
     /**
@@ -97,6 +117,12 @@ public class Logger {
             mLogListenerWeakReference = null;
             return;
         }
-        logListener.onEventLogged(text);
+        // Listeners are invoked from download worker threads; a broken listener
+        // must not be able to kill the process.
+        try {
+            logListener.onEventLogged(text);
+        } catch (RuntimeException e) {
+            e.printStackTrace();
+        }
     }
 }
