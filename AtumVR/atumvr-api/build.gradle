@@ -5,7 +5,7 @@ plugins {
 
 
 dependencies {
-    api("com.github.Phoenix-Ra:AtumConfiguration:1.2.0pre2")
+    api("com.github.Phoenix-Ra:AtumConfiguration:1.2.0pre3")
     api("org.reflections:reflections:0.10.2")
 
     api("org.joml:joml:1.10.5")
@@ -15,7 +15,8 @@ dependencies {
     api("org.lwjgl:lwjgl")
     api("org.lwjgl:lwjgl-opengl")
     api("org.lwjgl:lwjgl-glfw")
-    api files("${rootDir}/../deps/lwjgl-openxr-quest-3.3.3.jar")
+    api("org.lwjgl:lwjgl-openxr")
+    api("org.lwjgl:lwjgl-vulkan")
 
     api("org.lwjgl:lwjgl::natives-windows")
     api("org.lwjgl:lwjgl-opengl::natives-windows")
@@ -27,7 +28,14 @@ dependencies {
     api("org.lwjgl:lwjgl-glfw::natives-linux")
     api("org.lwjgl:lwjgl-openxr::natives-linux")
 
+    //standalone Steam Frame and other aarch64 Linux devices
+    api("org.lwjgl:lwjgl::natives-linux-arm64")
+    api("org.lwjgl:lwjgl-opengl::natives-linux-arm64")
+    api("org.lwjgl:lwjgl-glfw::natives-linux-arm64")
+    api("org.lwjgl:lwjgl-openxr::natives-linux-arm64")
+
     api("org.lwjgl:lwjgl-stb::natives-linux")
+    api("org.lwjgl:lwjgl-stb::natives-linux-arm64")
 }
 
 task javadocJar(type: Jar, dependsOn: javadoc) {

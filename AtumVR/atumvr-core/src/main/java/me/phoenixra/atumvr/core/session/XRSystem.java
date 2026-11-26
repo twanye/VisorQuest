@@ -3,17 +3,13 @@ package me.phoenixra.atumvr.core.session;
 import lombok.Getter;
 import me.phoenixra.atumvr.api.exceptions.AtumVRException;
 import me.phoenixra.atumvr.core.XRProvider;
-import me.phoenixra.atumvr.core.session.platform.XRPlatform;
 import org.jetbrains.annotations.NotNull;
 import org.lwjgl.openxr.*;
 import org.lwjgl.system.MemoryStack;
-import org.lwjgl.system.Struct;
 
 import java.nio.LongBuffer;
 
-import static org.lwjgl.system.MemoryUtil.NULL;
-import static org.lwjgl.system.MemoryUtil.memAddress;
-import static org.lwjgl.system.MemoryUtil.memUTF8;
+import static org.lwjgl.system.MemoryUtil.*;
 
 /**
  * XR session system (low-level OpenXR stuff)
@@ -85,12 +81,7 @@ public class XRSystem {
         }
     }
 
-    public Struct<?> createGraphicsBinding(MemoryStack stack,
-                                            XrInstance instance,
-                                            long systemID,
-                                            long windowHandle) {
-        return XRPlatform.get().createGraphicsBinding(stack, instance, systemID, windowHandle);
-    }
+
     public void destroy(){
 
     }

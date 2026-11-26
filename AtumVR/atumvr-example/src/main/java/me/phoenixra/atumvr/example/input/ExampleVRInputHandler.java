@@ -1,10 +1,21 @@
 package me.phoenixra.atumvr.example.input;
 
 import lombok.Getter;
+import me.phoenixra.atumvr.api.input.body.AtumVRBodyView;
 import me.phoenixra.atumvr.api.input.device.AtumVRDeviceController;
+import me.phoenixra.atumvr.core.input.body.XRCommonBodyView;
 import me.phoenixra.atumvr.core.input.device.XRDeviceController;
 import me.phoenixra.atumvr.core.input.profile.XRProfileManager;
-import me.phoenixra.atumvr.core.input.profile.tracker.ViveTrackerManager;
+import me.phoenixra.atumvr.core.input.profile.tracker.hand.EXTHandTrackingProvider;
+import me.phoenixra.atumvr.core.input.profile.tracker.hand.XRHandsProvider;
+import me.phoenixra.atumvr.core.input.profile.tracker.ViveTrackerProvider;
+import me.phoenixra.atumvr.core.input.haptics.XRBodyHapticsProvider;
+import me.phoenixra.atumvr.core.input.haptics.bhaptics.BHapticsProvider;
+import me.phoenixra.atumvr.core.input.treadmill.XRTreadmillEmulator;
+import me.phoenixra.atumvr.core.input.treadmill.XRTreadmillProvider;
+import me.phoenixra.atumvr.core.input.treadmill.infinadeck.InfinadeckTreadmillProvider;
+import me.phoenixra.atumvr.core.input.treadmill.kat.KATLegacyTreadmillProvider;
+import me.phoenixra.atumvr.core.input.treadmill.kat.KATTreadmillProvider;
 import me.phoenixra.atumvr.example.ExampleHandEnum;
 import me.phoenixra.atumvr.api.enums.ControllerType;
 import me.phoenixra.atumvr.core.XRProvider;
@@ -22,7 +33,14 @@ public class ExampleVRInputHandler extends XRInputHandler {
     @Getter
     private XRProfileManager profileSetHolder;
     @Getter
-    private ViveTrackerManager trackerManager;
+    private ViveTrackerProvider trackerProvider;
+    @Getter
+    private EXTHandTrackingProvider handTrackingProvider;
+    @Getter
+    private XRTreadmillEmulator treadmillEmulator;
+
+    private static final float WALK_SPEED = 1.2f;
+    private static final float TURN_RATE = 0.5f;
 
     private final ExampleHandEnum pulsatingHand = ExampleHandEnum.MAIN;
     @Getter
@@ -35,11 +53,41 @@ public class ExampleVRInputHandler extends XRInputHandler {
     @Override
     protected @NotNull List<? extends XRActionSet> generateActionSets(@NotNull MemoryStack stack) {
         profileSetHolder = new XRProfileManager(getVrProvider());
-        trackerManager = new ViveTrackerManager(getVrProvider());
+        return profileSetHolder.getAllActionSets();
+    }
 
-        List<XRActionSet> actionSets = new ArrayList<>(profileSetHolder.getAllActionSets());
-        actionSets.addAll(trackerManager.getActionSets());
-        return actionSets;
+    @Override
+    protected @NotNull List<? extends AtumVRBodyView> generateBodyViews(@NotNull MemoryStack stack) {
+        trackerProvider = new ViveTrackerProvider(getVrProvider());
+        trackerProvider.setEmulated(true);
+
+        return List.of(
+                new XRCommonBodyView(getVrProvider()),
+                trackerProvider
+        );
+    }
+
+    @Override
+    protected @NotNull List<? extends XRHandsProvider> generateHandsProviders(@NotNull MemoryStack stack) {
+        handTrackingProvider = new EXTHandTrackingProvider(getVrProvider());
+        return List.of(handTrackingProvider);
+    }
+
+    @Override
+    protected @NotNull List<? extends XRTreadmillProvider> generateTreadmillProviders(@NotNull MemoryStack stack) {
+        treadmillEmulator = new XRTreadmillEmulator();
+        // real hardware first, emulator as the always-supported fallback
+        return List.of(
+                new KATTreadmillProvider(getVrProvider()),
+                new KATLegacyTreadmillProvider(getVrProvider()),
+                new InfinadeckTreadmillProvider(getVrProvider()),
+                treadmillEmulator
+        );
+    }
+
+    @Override
+    protected @NotNull List<? extends XRBodyHapticsProvider> generateBodyHapticsProviders(@NotNull MemoryStack stack) {
+        return List.of(new BHapticsProvider(getVrProvider()));
     }
 
     @Override
@@ -60,13 +108,15 @@ public class ExampleVRInputHandler extends XRInputHandler {
                 profileSetHolder.getCommonSet().getHandPoseGrip(),
                 profileSetHolder.getCommonSet().getHapticPulse()
         ));
-        trackerManager.setEmulated(true);
-        devices.addAll(trackerManager.createDevices());
         return devices;
     }
 
     @Override
     public void update() {
+        float time = (float) (getVrProvider().getXrDisplayTime() * 1.0e-9);
+        treadmillEmulator.setSensorYaw(time * TURN_RATE);
+        treadmillEmulator.setGait(0f, 1f, WALK_SPEED);
+
         super.update();
         ControllerType type = pulsatingHand.asType();
 

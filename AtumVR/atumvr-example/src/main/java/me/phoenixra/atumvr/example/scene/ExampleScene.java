@@ -1,7 +1,9 @@
 package me.phoenixra.atumvr.example.scene;
 
+import me.phoenixra.atumvr.api.enums.ControllerType;
 import me.phoenixra.atumvr.api.enums.EyeType;
-import me.phoenixra.atumvr.api.input.profile.tracker.ViveTrackerRole;
+import me.phoenixra.atumvr.api.input.body.AtumVRBodyJoint;
+import me.phoenixra.atumvr.api.input.body.hand.AtumVRHandJoint;
 import me.phoenixra.atumvr.core.rendering.XRRenderer;
 import me.phoenixra.atumvr.core.rendering.XRScene;
 import me.phoenixra.atumvr.example.ExampleVRProvider;
@@ -25,7 +27,13 @@ public class ExampleScene extends XRScene {
 
     private final List<ExampleMannequinPart> mannequinParts = new ArrayList<>();
     private final Vector3f mannequinOffset = new Vector3f(0f, 0f, 2.5f);
-    private int lastActiveTrackerCount = -1;
+    private int lastTrackedJointCount = -1;
+
+    private long lastTreadmillTime = Long.MIN_VALUE;
+    private final Vector3f cachedTreadmillStep = new Vector3f();
+
+    private final List<ExampleHandJointPart> handParts = new ArrayList<>();
+    private int lastTrackedHandJointCount = -1;
 
     private float timer;
     public ExampleScene(@NotNull XRRenderer vrRenderer) {
@@ -92,6 +100,7 @@ public class ExampleScene extends XRScene {
         }
 
         initMannequin();
+        initHands();
 
         System.out.println("Successfully attached vertices to frame buffer");
     }
@@ -99,10 +108,11 @@ public class ExampleScene extends XRScene {
 
     private void initMannequin() {
         StbTexture mannequinTexture = new StbTexture("textures/test.png");
-        for (ViveTrackerRole role : getProvider().getInputHandler().getTrackerManager().getRoles()) {
+        // a part per joint, whichever ones the body ends up delivering
+        for (AtumVRBodyJoint joint : AtumVRBodyJoint.values()) {
             ExampleMannequinPart part = new ExampleMannequinPart(
                     getProvider(),
-                    role,
+                    joint,
                     mannequinTexture,
                     mannequinOffset
             );
@@ -110,7 +120,26 @@ public class ExampleScene extends XRScene {
             mannequinParts.add(part);
         }
         getProvider().getLogger().logInfo(
-                "Mannequin initialized with " + mannequinParts.size() + " tracker body part(s)"
+                "Mannequin initialized with " + mannequinParts.size() + " body part(s)"
+        );
+    }
+
+    private void initHands() {
+        StbTexture handTexture = new StbTexture("textures/test.png");
+        for (ControllerType side : ControllerType.values()) {
+            for (int i = 0; i < AtumVRHandJoint.COUNT; i++) {
+                ExampleHandJointPart part = new ExampleHandJointPart(
+                        getProvider(),
+                        side,
+                        AtumVRHandJoint.fromIndex(i),
+                        handTexture
+                );
+                part.init();
+                handParts.add(part);
+            }
+        }
+        getProvider().getLogger().logInfo(
+                "Hands initialized with " + handParts.size() + " joint part(s)"
         );
     }
 
@@ -137,30 +166,63 @@ public class ExampleScene extends XRScene {
         }
 
         for(ExampleMannequinPart part : mannequinParts){
-            if(!part.isTrackerActive()){
+            if(!part.isJointTracked()){
+                continue;
+            }
+            updateShaderVariables(eyeType, part.getModelMatrix());
+            part.render();
+        }
+        for(ExampleHandJointPart part : handParts){
+            if(!part.isJointTracked()){
                 continue;
             }
             updateShaderVariables(eyeType, part.getModelMatrix());
             part.render();
         }
         if(eyeType == EyeType.LEFT){
-            logActiveTrackerCountIfChanged();
+            applyTreadmillWalk();
+            logTrackedJointCountIfChanged();
+            logTrackedHandJointCountIfChanged();
         }
 
         GL30.glUseProgram(0);
     }
 
-    private void logActiveTrackerCountIfChanged(){
-        int activeNow = 0;
-        for(ExampleMannequinPart part : mannequinParts){
-            if(part.isTrackerActive()){
-                activeNow++;
-            }
+    private void applyTreadmillWalk(){
+        long now = getProvider().getXrDisplayTime();
+        float dt = lastTreadmillTime == Long.MIN_VALUE
+                ? 0f
+                : (now - lastTreadmillTime) * 1.0e-9f;
+        lastTreadmillTime = now;
+        if(dt <= 0f){
+            return;
         }
-        if(activeNow != lastActiveTrackerCount){
-            lastActiveTrackerCount = activeNow;
+
+        var treadmill = getProvider().getInputHandler().getVRTreadmill();
+        if(treadmill.getVelocity(cachedTreadmillStep) != null){
+            mannequinOffset.add(cachedTreadmillStep.mul(dt));
+        }
+    }
+
+    private void logTrackedJointCountIfChanged(){
+        int trackedNow = getProvider().getInputHandler().getVRBody()
+                .getTrackedJoints().size();
+        if(trackedNow != lastTrackedJointCount){
+            lastTrackedJointCount = trackedNow;
             getProvider().getLogger().logInfo(
-                    "Active trackers: " + activeNow + " / " + mannequinParts.size()
+                    "Tracked body joints: " + trackedNow + " / " + mannequinParts.size()
+            );
+        }
+    }
+
+    private void logTrackedHandJointCountIfChanged(){
+        var hands = getProvider().getInputHandler().getVRHands();
+        int trackedNow = hands.getLeftHand().getTrackedJoints().size()
+                + hands.getRightHand().getTrackedJoints().size();
+        if(trackedNow != lastTrackedHandJointCount){
+            lastTrackedHandJointCount = trackedNow;
+            getProvider().getLogger().logInfo(
+                    "Tracked hand joints: " + trackedNow + " / " + handParts.size()
             );
         }
     }
@@ -231,6 +293,10 @@ public class ExampleScene extends XRScene {
             part.destroy();
         }
         mannequinParts.clear();
+        for(ExampleHandJointPart part : handParts){
+            part.destroy();
+        }
+        handParts.clear();
     }
 
     @Override

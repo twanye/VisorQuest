@@ -22,6 +22,7 @@ public class XRState implements AtumVRState {
     /**
      * If VR session is ready (initialized) on VR runtime side
      */
+    @Getter
     protected boolean ready = false;
 
 
@@ -78,6 +79,11 @@ public class XRState implements AtumVRState {
                 continue;
             }
 
+            if (vrEvent == XREvent.INTERACTION_PROFILE_CHANGED) {
+                vrProvider.onInteractionProfileChanged();
+                continue;
+            }
+
             if (vrEvent == XREvent.VIVE_TRACKER_CONNECTED_HTCX) {
                 vrProvider.onViveTrackerConnected(
                         XrEventDataViveTrackerConnectedHTCX.create(event.address())
@@ -85,35 +91,8 @@ public class XRState implements AtumVRState {
                 continue;
             }
 
-            if (vrEvent == XREvent.REFERENCE_SPACE_CHANGE_PENDING) {
-                XrEventDataReferenceSpaceChangePending change =
-                        XrEventDataReferenceSpaceChangePending.create(event.address());
-                vrProvider.getLogger().logInfo(
-                        "Reference space change pending: type="
-                                + change.referenceSpaceType()
-                                + ", appType="
-                                + vrProvider.getSession().getXrAppSpaceType()
-                                + ", changeTime="
-                                + change.changeTime()
-                                + ", poseValid="
-                                + change.poseValid()
-                );
-                continue;
-            }
-
-            if (vrEvent == XREvent.DISPLAY_REFRESH_RATE_CHANGED_FB) {
-                XrEventDataDisplayRefreshRateChangedFB change =
-                        XrEventDataDisplayRefreshRateChangedFB.create(event.address());
-                vrProvider.getSession().onDisplayRefreshRateChanged(
-                        change.fromDisplayRefreshRate(),
-                        change.toDisplayRefreshRate()
-                );
-                continue;
-            }
-
             vrProvider.onXREventReceived(vrEvent);
         }
-        vrProvider.getSession().maintainPreferredDisplayRefreshRate(focused);
     }
 
     private void xrStateChanged(XrEventDataSessionStateChanged event) {
@@ -136,21 +115,22 @@ public class XRState implements AtumVRState {
                 }
                 ready = true;
                 active = true; //for convenience
-                vrProvider.getSession().requestPreferredDisplayRefreshRate();
                 vrProvider.getLogger().logInfo("OpenXR session is READY");
 
             }
 
             case STOPPING -> {
                 ready = false;
-                initialized = false;
                 active = false;
-
+                vrProvider.checkXRError(
+                        false,
+                        XR10.xrEndSession(vrProvider.getSession().getHandle()),
+                        "xrEndSession", "XRStateChangeSTOPPING"
+                );
+                vrProvider.getLogger().logInfo("OpenXR session is STOPPED");
             }
 
-            case VISIBLE -> active = true;
-
-            case FOCUSED -> active = true;
+            case VISIBLE, FOCUSED -> active = true;
 
             case EXITING, IDLE, SYNCHRONIZED -> active = false;
         }

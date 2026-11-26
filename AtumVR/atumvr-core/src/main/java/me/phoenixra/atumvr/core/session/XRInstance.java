@@ -3,22 +3,28 @@ package me.phoenixra.atumvr.core.session;
 import lombok.Getter;
 import me.phoenixra.atumvr.api.exceptions.AtumVRException;
 import me.phoenixra.atumvr.core.XRProvider;
-import me.phoenixra.atumvr.core.session.platform.XRPlatform;
+import me.phoenixra.atumvr.core.enums.XRGraphicsApi;
+import me.phoenixra.atumvr.core.session.opengl.XROpenGLBinding;
 import org.jetbrains.annotations.NotNull;
 import org.lwjgl.PointerBuffer;
+import org.lwjgl.opengl.GL;
+import org.lwjgl.opengl.GL11;
 import org.lwjgl.openxr.*;
 import org.lwjgl.system.MemoryStack;
 
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 
 /**
  * XR session instance (low-level OpenXR stuff)
  */
 public class XRInstance {
+
     private final XRProvider vrProvider;
 
     @Getter
@@ -34,6 +40,18 @@ public class XRInstance {
     @Getter
     private String runtimeVersionString;
 
+
+    @Getter
+    private Set<String> availableExtensions = Set.of();
+    @Getter
+    private Set<String> enabledExtensions = Set.of();
+
+    @Getter
+    private XRGraphicsApi graphicsApi;
+
+    @Getter
+    private XROpenGLBinding.ContextApi glContextApi;
+
     private XrDebugUtilsMessengerEXT debugMessenger;
 
     public XRInstance(@NotNull XRProvider vrProvider){
@@ -43,8 +61,6 @@ public class XRInstance {
 
     public void init() {
         try (MemoryStack stack = MemoryStack.stackPush()) {
-
-            XRPlatform.get().initializeLoader(stack);
 
             var extensionsPointer = setupExtensions(
                     vrProvider, stack
@@ -61,7 +77,7 @@ public class XRInstance {
             // 2) Create XrInstanceCreateInfo
             var instInfo = XrInstanceCreateInfo.calloc(stack)
                     .type(XR10.XR_TYPE_INSTANCE_CREATE_INFO)
-                    .next(XRPlatform.get().getInstanceCreateInfo(stack))
+                    .next(0)
                     .applicationInfo(appInfo)
                     .enabledExtensionNames(extensionsPointer)
                     .enabledApiLayerNames(null);
@@ -79,7 +95,7 @@ public class XRInstance {
 
             this.handle = new XrInstance(instancePointer.get(0), instInfo);
 
-            if(!XRPlatform.isAndroid() && handle.getCapabilities().XR_EXT_debug_utils) {
+            if(handle.getCapabilities().XR_EXT_debug_utils) {
                 setupDebugMessenger(vrProvider, stack);
             }
 
@@ -97,8 +113,6 @@ public class XRInstance {
     }
 
     private PointerBuffer setupExtensions(XRProvider vrProvider, MemoryStack stack){
-
-        String graphicsExtension = XRPlatform.get().getGraphicsExtension();
 
 
         // 1) Enumerate available instance extensions
@@ -121,46 +135,143 @@ public class XRInstance {
         );
 
         // Collect supported extension names
-        Set<String> availableExtensions = new HashSet<>(extCount);
+        Set<String> available = new HashSet<>(extCount);
         for (XrExtensionProperties prop : extProperties) {
-            availableExtensions.add(prop.extensionNameString());
+            available.add(prop.extensionNameString());
         }
+        availableExtensions = Set.copyOf(available);
 
+
+        glContextApi = XROpenGLBinding.detectContextApi();
+        graphicsApi = resolveGraphicsApi();
+        vrProvider.getLogger().logInfo(
+                "Graphics API: " + graphicsApi + ", OpenGL context: " + glContextApi
+        );
 
         // 2) Define desired extensions in priority order
-        List<String> desiredExtensions = new ArrayList<>(List.of(
-                graphicsExtension,
+        List<String> desiredExtensions = new ArrayList<>(requiredExtensions(graphicsApi));
+        desiredExtensions.addAll(List.of(
+                EXTDebugUtils.XR_EXT_DEBUG_UTILS_EXTENSION_NAME,
                 FBDisplayRefreshRate.XR_FB_DISPLAY_REFRESH_RATE_EXTENSION_NAME,
-                KHRVisibilityMask.XR_KHR_VISIBILITY_MASK_EXTENSION_NAME,
-
-                EXTLocalFloor.XR_EXT_LOCAL_FLOOR_EXTENSION_NAME,
-                EXTPerformanceSettings.XR_EXT_PERFORMANCE_SETTINGS_EXTENSION_NAME,
-                FBColorSpace.XR_FB_COLOR_SPACE_EXTENSION_NAME,
-                FBFoveation.XR_FB_FOVEATION_EXTENSION_NAME,
-                FBFoveationConfiguration.XR_FB_FOVEATION_CONFIGURATION_EXTENSION_NAME,
-                FBSwapchainUpdateState.XR_FB_SWAPCHAIN_UPDATE_STATE_EXTENSION_NAME
+                KHRVisibilityMask.XR_KHR_VISIBILITY_MASK_EXTENSION_NAME //@TODO test mask for performance improvements
         ));
-        if (!XRPlatform.isAndroid()) {
-            desiredExtensions.add(EXTDebugUtils.XR_EXT_DEBUG_UTILS_EXTENSION_NAME);
-        }
         desiredExtensions.addAll(vrProvider.getXRAppExtensions());
 
-        // Ensure graphics extension is present
-        if (!availableExtensions.contains(graphicsExtension)) {
-            throw new AtumVRException(
-                    "Missing required graphics extension: " + graphicsExtension
+        // Keep only what the runtime offers, preserving priority order and dropping duplicates
+        Set<String> enabled = new LinkedHashSet<>();
+        List<String> skipped = new ArrayList<>();
+        for (String extName : desiredExtensions) {
+            if (availableExtensions.contains(extName)) {
+                enabled.add(extName);
+            } else if (!skipped.contains(extName)) {
+                skipped.add(extName);
+            }
+        }
+        enabledExtensions = Set.copyOf(enabled);
+
+        if (!skipped.isEmpty()) {
+            vrProvider.getLogger().logDebug(
+                    "Requested XR extensions unsupported by the runtime, skipping: " + skipped
             );
         }
 
-        // Build PointerBuffer of only the extensions actually supported
-        var enabledExtensions = stack.mallocPointer(desiredExtensions.size());
-        for (String extName : desiredExtensions) {
-            if (availableExtensions.contains(extName)) {
-                enabledExtensions.put(stack.UTF8(extName));
-            }
+        var extensionsPointer = stack.mallocPointer(enabled.size());
+        for (String extName : enabled) {
+            extensionsPointer.put(stack.UTF8(extName));
         }
-        enabledExtensions.flip();
-        return enabledExtensions;
+        extensionsPointer.flip();
+        return extensionsPointer;
+    }
+
+
+    private XRGraphicsApi resolveGraphicsApi() {
+        XRGraphicsApi forced = vrProvider.getGraphicsApiPreference();
+        if (forced != null) {
+            List<String> missing = missingExtensions(forced);
+            if (!missing.isEmpty()) {
+                throw new AtumVRException(
+                        "Forced graphics API " + forced + " requires " + missing
+                                + " which the runtime does not support"
+                );
+            }
+            vrProvider.getLogger().logInfo("Graphics API forced to " + forced);
+            return forced;
+        }
+        List<String> openglMissing = missingExtensions(XRGraphicsApi.OPENGL);
+        boolean vulkanSupported = missingExtensions(XRGraphicsApi.VULKAN).isEmpty();
+        if (openglMissing.isEmpty()) {
+            String arcRenderer = detectIntelArcRenderer();
+            if (arcRenderer != null) {
+                if (vulkanSupported) {
+                    vrProvider.getLogger().logInfo(
+                            "Intel Arc GPU detected [" + arcRenderer
+                                    + "], using the Vulkan bridge"
+                    );
+                    return XRGraphicsApi.VULKAN;
+                }
+                vrProvider.getLogger().logInfo(
+                        "Intel Arc GPU detected [" + arcRenderer + "] but the runtime lacks "
+                                + XRGraphicsApi.VULKAN.getExtensionName() + ", staying on OpenGL"
+                );
+            }
+            return XRGraphicsApi.OPENGL;
+        }
+        if (vulkanSupported) {
+            vrProvider.getLogger().logInfo(
+                    "Runtime lacks " + openglMissing + " for the " + glContextApi
+                            + " OpenGL context, using the Vulkan presentation bridge"
+            );
+            return XRGraphicsApi.VULKAN;
+        }
+        throw new AtumVRException(
+                "Runtime supports neither OpenGL " + requiredExtensions(XRGraphicsApi.OPENGL)
+                        + " nor Vulkan " + requiredExtensions(XRGraphicsApi.VULKAN)
+        );
+    }
+
+
+    private List<String> requiredExtensions(XRGraphicsApi api) {
+        String bindingExtension = api == XRGraphicsApi.OPENGL && glContextApi != null
+                ? glContextApi.getExtensionName()
+                : null;
+        return bindingExtension == null
+                ? List.of(api.getExtensionName())
+                : List.of(api.getExtensionName(), bindingExtension);
+    }
+
+    private List<String> missingExtensions(XRGraphicsApi api) {
+        return requiredExtensions(api).stream()
+                .filter(name -> !availableExtensions.contains(name))
+                .toList();
+    }
+
+    /**
+     * @return the GL renderer string if the current GPU is an Intel Arc, otherwise null
+     */
+    private String detectIntelArcRenderer() {
+        try {
+            GL.getCapabilities();
+        } catch (IllegalStateException noContext) {
+            vrProvider.getLogger().logDebug(
+                    "No current GL context while resolving the graphics API, skipping GPU detection"
+            );
+            return null;
+        }
+        String renderer = GL11.glGetString(GL11.GL_RENDERER);
+        if (renderer == null) {
+            return null;
+        }
+        String lower = renderer.toLowerCase(Locale.ROOT);
+        return lower.contains("intel") && lower.contains("arc") ? renderer : null;
+    }
+
+    public boolean isExtensionEnabled(@NotNull String extensionName){
+        return enabledExtensions.contains(extensionName);
+    }
+
+
+    public boolean isExtensionAvailable(@NotNull String extensionName){
+        return availableExtensions.contains(extensionName);
     }
 
     private void setupDebugMessenger(XRProvider vrProvider, MemoryStack stack) {

@@ -4,17 +4,21 @@ import lombok.Getter;
 import lombok.Setter;
 import me.phoenixra.atumvr.api.AtumVRLogger;
 import me.phoenixra.atumvr.api.AtumVRProvider;
-import me.phoenixra.atumvr.api.input.profile.tracker.ViveTrackerRole;
 import me.phoenixra.atumvr.api.rendering.AtumVRRenderer;
 import me.phoenixra.atumvr.core.enums.XREvent;
 import me.phoenixra.atumvr.api.exceptions.AtumVRException;
 import me.phoenixra.atumvr.api.rendering.AtumVRRenderContext;
 import me.phoenixra.atumvr.core.enums.XRActionResult;
+import me.phoenixra.atumvr.core.enums.XRGraphicsApi;
 import me.phoenixra.atumvr.core.enums.XRSessionState;
 import me.phoenixra.atumvr.core.rendering.XRRenderer;
 import me.phoenixra.atumvr.core.session.XRSession;
 import me.phoenixra.atumvr.core.input.XRInputHandler;
+import me.phoenixra.atumvr.core.input.profile.tracker.hand.EXTHandTrackingProvider;
+import me.phoenixra.atumvr.core.input.profile.tracker.FBBodyTrackingProvider;
+import me.phoenixra.atumvr.core.input.profile.types.SteamFrameXRProfile;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 import org.lwjgl.opengl.GL30;
 import org.lwjgl.opengl.GL31;
 import org.lwjgl.openxr.*;
@@ -133,6 +137,9 @@ public abstract class XRProvider implements AtumVRProvider {
      *     <li>{@link HTCViveCosmosControllerInteraction#XR_HTC_VIVE_COSMOS_CONTROLLER_INTERACTION_EXTENSION_NAME}</li>
      *     <li>{@link BDControllerInteraction#XR_BD_CONTROLLER_INTERACTION_EXTENSION_NAME}</li>
      *     <li>{@link HTCXViveTrackerInteraction#XR_HTCX_VIVE_TRACKER_INTERACTION_EXTENSION_NAME}</li>
+     *     <li>{@link SteamFrameXRProfile#EXTENSION_NAME}</li>
+     *     <li>{@link FBBodyTracking#XR_FB_BODY_TRACKING_EXTENSION_NAME} with the META full body and fidelity additions</li>
+     *     <li>{@link EXTHandTracking#XR_EXT_HAND_TRACKING_EXTENSION_NAME} with the data source addition</li>
      * </ul>
      *
      * <p>
@@ -149,11 +156,23 @@ public abstract class XRProvider implements AtumVRProvider {
                 EXTHPMixedRealityController.XR_EXT_HP_MIXED_REALITY_CONTROLLER_EXTENSION_NAME,
                 HTCViveCosmosControllerInteraction.XR_HTC_VIVE_COSMOS_CONTROLLER_INTERACTION_EXTENSION_NAME,
                 BDControllerInteraction.XR_BD_CONTROLLER_INTERACTION_EXTENSION_NAME,
-                HTCXViveTrackerInteraction.XR_HTCX_VIVE_TRACKER_INTERACTION_EXTENSION_NAME
+                HTCXViveTrackerInteraction.XR_HTCX_VIVE_TRACKER_INTERACTION_EXTENSION_NAME,
+                SteamFrameXRProfile.EXTENSION_NAME,
 
+                FBBodyTrackingProvider.EXTENSION_NAME,
+                FBBodyTrackingProvider.EXTENSION_FULL_BODY_META,
+                FBBodyTrackingProvider.EXTENSION_FIDELITY_META,
+
+                EXTHandTrackingProvider.EXTENSION_NAME,
+                EXTHandTrackingProvider.EXTENSION_DATA_SOURCE
         );
     }
 
+
+
+    public @Nullable XRGraphicsApi getGraphicsApiPreference(){
+        return null;
+    }
 
     /**
      * Retrieves the list of supported swap chain formats.
@@ -200,14 +219,6 @@ public abstract class XRProvider implements AtumVRProvider {
         );
     }
 
-    public float getPreferredRefreshRate(){
-        return 120f;
-    }
-
-    public int getFoveationLevel(){
-        return FBFoveationConfiguration.XR_FOVEATION_LEVEL_MEDIUM_FB;
-    }
-
     // -------- LIFECYCLE --------
 
     @Override
@@ -230,7 +241,7 @@ public abstract class XRProvider implements AtumVRProvider {
 
     @Override
     public void startFrame() {
-        if(!state.isInitialized()){
+        if(!state.isInitialized() || !state.isReady()){
             return;
         }
         renderer.prepareFrame();
@@ -239,10 +250,49 @@ public abstract class XRProvider implements AtumVRProvider {
 
     @Override
     public void render(@NotNull AtumVRRenderContext context) {
-        if(!state.isInitialized()){
+        if(!state.isInitialized() || !state.isReady()){
             return;
         }
         renderer.renderFrame(context);
+    }
+
+    @Override
+    public void idleFrame() {
+        if(!state.isInitialized() || !state.isReady()){
+            return;
+        }
+        try (MemoryStack stack = MemoryStack.stackPush()) {
+            XrFrameState frameState = XrFrameState.calloc(stack)
+                    .type(XR10.XR_TYPE_FRAME_STATE);
+
+            checkXRError(
+                    XR10.xrWaitFrame(
+                            session.getHandle(),
+                            XrFrameWaitInfo.calloc(stack)
+                                    .type(XR10.XR_TYPE_FRAME_WAIT_INFO),
+                            frameState
+                    ),
+                    "xrWaitFrame", "idleFrame"
+            );
+            checkXRError(
+                    XR10.xrBeginFrame(
+                            session.getHandle(),
+                            XrFrameBeginInfo.calloc(stack)
+                                    .type(XR10.XR_TYPE_FRAME_BEGIN_INFO)
+                    ),
+                    "xrBeginFrame", "idleFrame"
+            );
+            checkXRError(
+                    XR10.xrEndFrame(
+                            session.getHandle(),
+                            XrFrameEndInfo.calloc(stack)
+                                    .type(XR10.XR_TYPE_FRAME_END_INFO)
+                                    .displayTime(frameState.predictedDisplayTime())
+                                    .environmentBlendMode(XR10.XR_ENVIRONMENT_BLEND_MODE_OPAQUE)
+                    ),
+                    "xrEndFrame", "idleFrame"
+            );
+        }
     }
 
     @Override
@@ -282,6 +332,10 @@ public abstract class XRProvider implements AtumVRProvider {
 
     protected void onViveTrackerConnected(@NotNull XrEventDataViveTrackerConnectedHTCX event){
 
+    }
+
+    protected void onInteractionProfileChanged(){
+        inputHandler.logCurrentInteractionProfiles();
     }
 
 

@@ -2,6 +2,9 @@ package me.phoenixra.atumvr.core.session;
 
 import lombok.Getter;
 import me.phoenixra.atumvr.api.AtumVRSession;
+import me.phoenixra.atumvr.core.enums.XRGraphicsApi;
+import me.phoenixra.atumvr.core.session.opengl.XROpenGLBinding;
+import me.phoenixra.atumvr.core.session.vulkan.XRVulkanBridge;
 import me.phoenixra.atumvr.core.utils.XRUtils;
 import me.phoenixra.atumvr.core.XRProvider;
 import org.jetbrains.annotations.NotNull;
@@ -26,9 +29,6 @@ public class XRSession implements AtumVRSession {
     protected XrSpace xrAppSpace;
 
     @Getter
-    protected int xrAppSpaceType;
-
-    @Getter
     protected XrSpace xrViewSpace;
 
 
@@ -43,13 +43,7 @@ public class XRSession implements AtumVRSession {
     protected XRSystem system;
 
     @Getter
-    protected float requestedDisplayRefreshRate = Float.NaN;
-
-    @Getter
-    protected float currentDisplayRefreshRate = Float.NaN;
-
-    private long nextDisplayRefreshRateCheckNanos = Long.MAX_VALUE;
-    private int displayRefreshRateRequestCount;
+    protected XRVulkanBridge vulkanBridge;
 
     public XRSession(@NotNull XRProvider vrProvider){
         this.vrProvider = vrProvider;
@@ -66,23 +60,41 @@ public class XRSession implements AtumVRSession {
             initSession(stack);
             initSpaces(stack);
             initDisplayRefreshRate(stack);
-            initPerformanceLevels();
-            initColorSpace();
         }
         swapChain.init();
     }
 
 
+    /**
+     * Get the active graphics API, resolved during instance init
+     *
+     * @return the graphics API
+     */
+    public XRGraphicsApi getGraphicsApi() {
+        return instance.getGraphicsApi();
+    }
+
     private void initSession(MemoryStack stack){
 
         long systemId = system.getSystemId();
 
-        Struct<?> graphicsBind = system.createGraphicsBinding(
-                stack,
-                instance.getHandle(),
-                systemId,
-                vrProvider.getRenderer().getWindowHandle()
-        );
+        Struct<?> graphicsBind;
+        if (instance.getGraphicsApi() == XRGraphicsApi.VULKAN) {
+            vulkanBridge = new XRVulkanBridge(vrProvider);
+            graphicsBind = vulkanBridge.createGraphicsBinding(
+                    stack,
+                    instance.getHandle(),
+                    systemId
+            );
+        } else {
+            graphicsBind = new XROpenGLBinding(vrProvider).createGraphicsBinding(
+                    stack,
+                    instance.getHandle(),
+                    systemId,
+                    instance.getGlContextApi(),
+                    vrProvider.getRenderer().getWindowHandle()
+            );
+        }
         var sessionInfo = XrSessionCreateInfo.calloc(stack)
                 .type(XR10.XR_TYPE_SESSION_CREATE_INFO)
                 .next(graphicsBind.address())
@@ -106,20 +118,11 @@ public class XRSession implements AtumVRSession {
                         XrVector3f.calloc(stack).set(0f, 0f, 0f)
                 );
 
-        xrAppSpaceType = handle.getCapabilities().XR_EXT_local_floor
-                ? EXTLocalFloor.XR_REFERENCE_SPACE_TYPE_LOCAL_FLOOR_EXT
-                : XR10.XR_REFERENCE_SPACE_TYPE_STAGE;
-
         xrAppSpace  = XRUtils.createReferenceSpace(
                 vrProvider,
-                xrAppSpaceType,
+                XR10.XR_REFERENCE_SPACE_TYPE_STAGE,
                 identity,
                 stack
-        );
-        vrProvider.getLogger().logInfo(
-                "Application reference space: "
-                        + (xrAppSpaceType == EXTLocalFloor.XR_REFERENCE_SPACE_TYPE_LOCAL_FLOOR_EXT
-                        ? "LOCAL_FLOOR_EXT" : "STAGE")
         );
 
         identity = XrPosef.calloc(stack)
@@ -137,151 +140,33 @@ public class XRSession implements AtumVRSession {
 
 
 
+    //@TODO test it
     private void initDisplayRefreshRate(MemoryStack stack) {
-        float preferred = vrProvider.getPreferredRefreshRate();
-        if (preferred <= 0f || !handle.getCapabilities().XR_FB_display_refresh_rate) {
-            return;
-        }
-        IntBuffer refreshRateCount = stack.callocInt(1);
-        vrProvider.checkXRError(
-                FBDisplayRefreshRate.xrEnumerateDisplayRefreshRatesFB(
-                        handle, refreshRateCount, null
-                ),
-                "xrEnumerateDisplayRefreshRatesFB",
-                "first call"
-        );
-        FloatBuffer refreshRateBuffer = stack.callocFloat(refreshRateCount.get(0));
-        vrProvider.checkXRError(
-                FBDisplayRefreshRate.xrEnumerateDisplayRefreshRatesFB(
-                        handle, refreshRateCount, refreshRateBuffer
-                ),
-                "xrEnumerateDisplayRefreshRatesFB",
-                "second call"
-        );
-
-        float chosen = Float.NaN;
-        for (int i = 0; i < refreshRateCount.get(0); i++) {
-            float rate = refreshRateBuffer.get(i);
-            if (Float.isNaN(chosen)
-                    || Math.abs(rate - preferred) < Math.abs(chosen - preferred)
-                    || (Math.abs(rate - preferred) == Math.abs(chosen - preferred) && rate < chosen)) {
-                chosen = rate;
-            }
-        }
-        if (Float.isNaN(chosen)) {
-            return;
-        }
-        requestedDisplayRefreshRate = chosen;
-        displayRefreshRateRequestCount = 0;
-        nextDisplayRefreshRateCheckNanos = 0L;
-        StringBuilder supported = new StringBuilder();
-        for (int i = 0; i < refreshRateCount.get(0); i++) {
-            if (i > 0) {
-                supported.append(", ");
-            }
-            supported.append(refreshRateBuffer.get(i));
-        }
-        vrProvider.getLogger().logInfo(
-                "Supported display refresh rates: [" + supported + "] Hz; selected "
-                        + chosen + " Hz (preferred " + preferred + " Hz)"
-        );
-        updateCurrentDisplayRefreshRate(stack);
-    }
-
-    public void requestPreferredDisplayRefreshRate() {
-        if (Float.isNaN(requestedDisplayRefreshRate)
-                || handle == null
-                || !handle.getCapabilities().XR_FB_display_refresh_rate) {
-            return;
-        }
-        vrProvider.checkXRError(
-                FBDisplayRefreshRate.xrRequestDisplayRefreshRateFB(handle, requestedDisplayRefreshRate),
-                "xrRequestDisplayRefreshRateFB"
-        );
-        try (MemoryStack stack = MemoryStack.stackPush()) {
-            updateCurrentDisplayRefreshRate(stack);
-        }
-        displayRefreshRateRequestCount++;
-        nextDisplayRefreshRateCheckNanos = System.nanoTime()
-                + (displayRefreshRateRequestCount < 8 ? 1_000_000_000L : 30_000_000_000L);
-        vrProvider.getLogger().logInfo(
-                "Display refresh request submitted: attempt=" + displayRefreshRateRequestCount
-                        + ", requested=" + requestedDisplayRefreshRate
-                        + " Hz, current=" + currentDisplayRefreshRate + " Hz"
-        );
-    }
-
-    public void maintainPreferredDisplayRefreshRate(boolean focused) {
-        if (!focused
-                || Float.isNaN(requestedDisplayRefreshRate)
-                || System.nanoTime() < nextDisplayRefreshRateCheckNanos) {
-            return;
-        }
-        try (MemoryStack stack = MemoryStack.stackPush()) {
-            updateCurrentDisplayRefreshRate(stack);
-        }
-        if (Math.abs(currentDisplayRefreshRate - requestedDisplayRefreshRate) <= 0.1f) {
-            nextDisplayRefreshRateCheckNanos = Long.MAX_VALUE;
-            vrProvider.getLogger().logInfo(
-                    "Display refresh rate confirmed by readback: "
-                            + currentDisplayRefreshRate + " Hz"
+        if (handle.getCapabilities().XR_FB_display_refresh_rate) {
+            IntBuffer refreshRateCount = stack.callocInt(1);
+            vrProvider.checkXRError(
+                    FBDisplayRefreshRate.xrEnumerateDisplayRefreshRatesFB(
+                            handle, refreshRateCount, null
+                    ),
+                    "xrEnumerateDisplayRefreshRatesFB",
+                    "first call"
             );
-            return;
+            FloatBuffer refreshRateBuffer = stack.callocFloat(refreshRateCount.get(0));
+            vrProvider.checkXRError(
+                    FBDisplayRefreshRate.xrEnumerateDisplayRefreshRatesFB(
+                            handle, refreshRateCount, refreshRateBuffer
+                    ),
+                    "xrEnumerateDisplayRefreshRatesFB",
+                    "second call"
+            );
+            refreshRateBuffer.rewind();
+            vrProvider.checkXRError(
+                    FBDisplayRefreshRate.xrRequestDisplayRefreshRateFB(
+                            handle, refreshRateBuffer.get(refreshRateCount.get(0) -1)
+                    ),
+                    "xrRequestDisplayRefreshRateFB"
+            );
         }
-        requestPreferredDisplayRefreshRate();
-    }
-
-    public void onDisplayRefreshRateChanged(float from, float to) {
-        currentDisplayRefreshRate = to;
-        nextDisplayRefreshRateCheckNanos = Math.abs(to - requestedDisplayRefreshRate) <= 0.1f
-                ? Long.MAX_VALUE
-                : System.nanoTime() + 1_000_000_000L;
-        vrProvider.getLogger().logInfo(
-                "Display refresh rate changed: " + from + " Hz -> " + to + " Hz"
-        );
-    }
-
-    private void updateCurrentDisplayRefreshRate(MemoryStack stack) {
-        FloatBuffer current = stack.callocFloat(1);
-        vrProvider.checkXRError(
-                FBDisplayRefreshRate.xrGetDisplayRefreshRateFB(handle, current),
-                "xrGetDisplayRefreshRateFB"
-        );
-        currentDisplayRefreshRate = current.get(0);
-    }
-
-    private void initPerformanceLevels() {
-        if (!handle.getCapabilities().XR_EXT_performance_settings) {
-            return;
-        }
-        vrProvider.checkXRError(
-                EXTPerformanceSettings.xrPerfSettingsSetPerformanceLevelEXT(
-                        handle,
-                        EXTPerformanceSettings.XR_PERF_SETTINGS_DOMAIN_CPU_EXT,
-                        EXTPerformanceSettings.XR_PERF_SETTINGS_LEVEL_SUSTAINED_HIGH_EXT
-                ),
-                "xrPerfSettingsSetPerformanceLevelEXT", "CPU"
-        );
-        vrProvider.checkXRError(
-                EXTPerformanceSettings.xrPerfSettingsSetPerformanceLevelEXT(
-                        handle,
-                        EXTPerformanceSettings.XR_PERF_SETTINGS_DOMAIN_GPU_EXT,
-                        EXTPerformanceSettings.XR_PERF_SETTINGS_LEVEL_SUSTAINED_HIGH_EXT
-                ),
-                "xrPerfSettingsSetPerformanceLevelEXT", "GPU"
-        );
-        vrProvider.getLogger().logInfo("CPU/GPU performance levels set to SUSTAINED_HIGH");
-    }
-
-    private void initColorSpace() {
-        if (!handle.getCapabilities().XR_FB_color_space) {
-            return;
-        }
-        vrProvider.checkXRError(
-                FBColorSpace.xrSetColorSpaceFB(handle, FBColorSpace.XR_COLOR_SPACE_REC709_FB),
-                "xrSetColorSpaceFB", "REC709"
-        );
-        vrProvider.getLogger().logInfo("Color space set to REC709");
     }
 
     public void destroy(){
@@ -310,6 +195,13 @@ public class XRSession implements AtumVRSession {
             this.handle = null;
         }
 
+        if (this.vulkanBridge != null) {
+            try { vulkanBridge.destroy(); } catch (Throwable t) {
+                vrProvider.getLogger().logError("vulkanBridge.destroy() failed: " + t.getMessage());
+            }
+            this.vulkanBridge = null;
+        }
+
         try { system.destroy(); }   catch (Throwable ignored) {}
         try { instance.destroy(); } catch (Throwable ignored) {}
     }
@@ -331,10 +223,13 @@ public class XRSession implements AtumVRSession {
         if (handle == null || instance == null || instance.getHandle() == null) {
             return;
         }
+        if (!vrProvider.getState().isReady()) {
+            return;
+        }
         try {
             XR10.xrRequestExitSession(handle);
         } catch (Throwable ignored) {
-            // Session may already be in IDLE / EXITING — that's fine.
+            // Session may already be in IDLE / EXITING
         }
 
         XrEventDataBuffer eventBuffer = instance.getXrEventBuffer();
