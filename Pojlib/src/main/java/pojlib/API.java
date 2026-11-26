@@ -19,12 +19,19 @@ import pojlib.install.VisorVersionTable;
 import pojlib.util.Logger;
 import pojlib.util.FileUtil;
 import pojlib.util.download.DownloadManager;
+import pojlib.util.download.DownloadUtils;
 import pojlib.util.json.MinecraftInstances;
 import pojlib.util.Constants;
 import pojlib.account.LoginHelper;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.file.FileVisitResult;
+import java.nio.file.FileVisitor;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.concurrent.ExecutionException;
@@ -335,4 +342,172 @@ public class API {
             return false;
         }
     }
+
+    // Ported from QuestCraftPlusPlus/Pojlib QuestCraft-6.0.1
+    public static void unzipSavesFromFolder(MinecraftInstances.Instance instance, String path) {
+        try {
+            Files.walkFileTree(Paths.get(path), new FileVisitor<Path>() {
+                @Override
+                public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) throws IOException {
+                    return FileVisitResult.CONTINUE;
+                }
+
+                @Override
+                public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
+                    installSave(instance, file);
+                    Files.delete(file);
+                    return FileVisitResult.CONTINUE;
+                }
+
+                @Override
+                public FileVisitResult visitFileFailed(Path file, IOException exc) throws IOException {
+                    Logger.getInstance().appendToLog("ERROR! Failed to read save import file: " + file + " | " + exc);
+                    return FileVisitResult.CONTINUE;
+                }
+
+                @Override
+                public FileVisitResult postVisitDirectory(Path dir, IOException exc) throws IOException {
+                    if (exc != null) {
+                        Logger.getInstance().appendToLog("ERROR! Failed to finish save import directory: " + dir + " | " + exc);
+                    }
+                    return FileVisitResult.CONTINUE;
+                }
+            });
+
+            fixDataPermissions();
+        } catch (IOException | RuntimeException e) {
+            Logger.getInstance().appendToLog("ERROR! Failed to bulk install saves from path: " + path + " | " + e);
+        }
+    }
+
+    // Ported from QuestCraftPlusPlus/Pojlib QuestCraft-6.0.1
+    public static void installSave(MinecraftInstances.Instance instance, Path file) {
+        try {
+            Path outPath = Paths.get(instance.gameDir, "saves");
+            Files.createDirectories(outPath);
+            FileUtil.unzipArchive(file.toString(), outPath.toString());
+        } catch (IOException | RuntimeException e) {
+            Logger.getInstance().appendToLog("ERROR! Failed to install save by file " + file + " | " + e);
+        }
+    }
+
+    // Ported from QuestCraftPlusPlus/Pojlib QuestCraft-6.0.1
+    public static void mirrorNativesInFolder(Context activity, MinecraftInstances instances, MinecraftInstances.Instance instance, String path) {
+        try {
+            Files.createDirectories(activity.getDataDir().toPath().resolve(instance.instanceName));
+            removeNatives(activity, instances, instance);
+
+            Files.walkFileTree(Paths.get(path), new FileVisitor<Path>() {
+                @Override
+                public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) throws IOException {
+                    return FileVisitResult.CONTINUE;
+                }
+
+                @Override
+                public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
+                    installNativeFromExisting(activity, instances, instance, file.toString());
+                    return FileVisitResult.CONTINUE;
+                }
+
+                @Override
+                public FileVisitResult visitFileFailed(Path file, IOException exc) throws IOException {
+                    Logger.getInstance().appendToLog("ERROR! Failed to read native import file: " + file + " | " + exc);
+                    return FileVisitResult.CONTINUE;
+                }
+
+                @Override
+                public FileVisitResult postVisitDirectory(Path dir, IOException exc) throws IOException {
+                    if (exc != null) {
+                        Logger.getInstance().appendToLog("ERROR! Failed to finish native import directory: " + dir + " | " + exc);
+                    }
+                    Files.delete(dir);
+                    return FileVisitResult.CONTINUE;
+                }
+            });
+        } catch (IOException | RuntimeException e) {
+            Logger.getInstance().appendToLog("ERROR! Failed to bulk install natives from path: " + path + " | " + e);
+        }
+    }
+
+    // Ported from QuestCraftPlusPlus/Pojlib QuestCraft-6.0.1
+    public static void installNativeFromExisting(Context activity, MinecraftInstances instances, MinecraftInstances.Instance instance, String nativePath) {
+        try {
+            Path nativeDirectory = activity.getDataDir().toPath().resolve(instance.instanceName);
+            Files.createDirectories(nativeDirectory);
+            Path source = Paths.get(nativePath);
+            Path out = nativeDirectory.resolve(source.getFileName());
+
+            Files.copy(source, out);
+            if (instance.extraNatives == null || instance.extraNatives.isEmpty()) {
+                instance.extraNatives = out.toString();
+            } else {
+                instance.extraNatives += File.pathSeparator + out;
+            }
+
+            GsonUtils.objectToJsonFile(Constants.USER_HOME + "/instances.json", instances);
+        } catch (IOException | RuntimeException e) {
+            Logger.getInstance().appendToLog("ERROR! Failed to install native from path: " + nativePath + " | " + e);
+        }
+    }
+
+    // Ported from QuestCraftPlusPlus/Pojlib QuestCraft-6.0.1
+    public static void installNative(Context activity, MinecraftInstances instances, MinecraftInstances.Instance instance, String downloadPath, String downloadName) {
+        try {
+            Path nativeDirectory = activity.getDataDir().toPath().resolve(instance.instanceName);
+            Files.createDirectories(nativeDirectory);
+            Path out = nativeDirectory.resolve(downloadName);
+
+            DownloadUtils.downloadFile(downloadPath, out.toFile());
+            if (instance.extraNatives == null || instance.extraNatives.isEmpty()) {
+                instance.extraNatives = out.toString();
+            } else {
+                instance.extraNatives += File.pathSeparator + out;
+            }
+
+            GsonUtils.objectToJsonFile(Constants.USER_HOME + "/instances.json", instances);
+        } catch (IOException | RuntimeException e) {
+            Logger.getInstance().appendToLog("ERROR! Failed to install native from url: " + downloadPath + " | " + e);
+        }
+    }
+
+    // Ported from QuestCraftPlusPlus/Pojlib QuestCraft-6.0.1
+    public static void removeNatives(Context activity, MinecraftInstances instances, MinecraftInstances.Instance instance) {
+        try {
+            Path nativeDirectory = activity.getDataDir().toPath().resolve(instance.instanceName);
+            if (Files.exists(nativeDirectory)) {
+                Files.walkFileTree(nativeDirectory, new FileVisitor<Path>() {
+                    @Override
+                    public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) throws IOException {
+                        return FileVisitResult.CONTINUE;
+                    }
+
+                    @Override
+                    public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
+                        Files.delete(file);
+                        return FileVisitResult.CONTINUE;
+                    }
+
+                    @Override
+                    public FileVisitResult visitFileFailed(Path file, IOException exc) throws IOException {
+                        Logger.getInstance().appendToLog("ERROR! Failed to delete native file: " + file + " | " + exc);
+                        return FileVisitResult.CONTINUE;
+                    }
+
+                    @Override
+                    public FileVisitResult postVisitDirectory(Path dir, IOException exc) throws IOException {
+                        if (exc != null) {
+                            Logger.getInstance().appendToLog("ERROR! Failed to clean native directory: " + dir + " | " + exc);
+                        }
+                        Files.delete(dir);
+                        return FileVisitResult.CONTINUE;
+                    }
+                });
+            }
+            instance.extraNatives = "";
+            GsonUtils.objectToJsonFile(Constants.USER_HOME + "/instances.json", instances);
+        } catch (IOException | RuntimeException e) {
+            Logger.getInstance().appendToLog("ERROR! Failed to delete natives by folder | " + e);
+        }
+    }
+
 }

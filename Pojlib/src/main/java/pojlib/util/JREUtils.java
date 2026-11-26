@@ -97,6 +97,27 @@ public class JREUtils {
         }
     }
 
+
+    // Ported from QuestCraftPlusPlus/Pojlib QuestCraft-6.0.1
+    public static boolean initializeExtraNatives(MinecraftInstances.Instance instance) {
+        if (instance.extraNatives == null || instance.extraNatives.trim().isEmpty()) {
+            return false;
+        }
+
+        boolean allLoaded = true;
+        for (String nativeLib : instance.extraNatives.split(java.util.regex.Pattern.quote(File.pathSeparator))) {
+            if (nativeLib == null || nativeLib.trim().isEmpty()) {
+                continue;
+            }
+            boolean loaded = dlopen(nativeLib);
+            if (!loaded) {
+                Logger.getInstance().appendToLog("ERROR! Could not dlopen extra native: " + nativeLib);
+                allLoaded = false;
+            }
+        }
+        return allLoaded;
+    }
+
     public static void redirectAndPrintJRELog() {
         Log.v("jrelog","Log starts here");
         JREUtils.logToLogger(Logger.getInstance());
@@ -250,8 +271,14 @@ public class JREUtils {
         System.out.println(JVMArgs);
 
         runtimeDir = activity.getFilesDir() + "/runtimes/JRE";
-
         initJavaRuntime();
+
+        // Ported from QuestCraftPlusPlus/Pojlib QuestCraft-6.0.1
+        if (instance.extraNatives != null && !instance.extraNatives.trim().isEmpty()
+                && !initializeExtraNatives(instance)) {
+            Logger.getInstance().appendToLog("Some extra native libraries failed to load; see the individual dlopen errors above.");
+        }
+
         chdir(instance.gameDir);
         userArgs.add(0,"java"); //argv[0] is the program name according to C standard.
 
