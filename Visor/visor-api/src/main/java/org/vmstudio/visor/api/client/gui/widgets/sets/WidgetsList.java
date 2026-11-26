@@ -1,11 +1,14 @@
 package org.vmstudio.visor.api.client.gui.widgets.sets;
 
+import org.vmstudio.visor.api.compatibility.mcversion.gui.McGuiUtils;
+import org.vmstudio.visor.api.compatibility.mcversion.gui.McGuiEventListener;
 import lombok.Setter;
 import lombok.experimental.Accessors;
 import org.vmstudio.visor.api.client.gui.GuiTexture;
 import org.vmstudio.visor.api.client.gui.overlays.options.OptionTextures;
-import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.AbstractWidget;
+import org.vmstudio.visor.api.compatibility.mcversion.gui.McWidget;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.components.Renderable;
 import net.minecraft.client.gui.components.events.GuiEventListener;
@@ -96,16 +99,16 @@ public class WidgetsList extends DynamicWidgetSet {
     public void onTick() {
         for (var widget : widgets) {
             if (widget instanceof EditBox editBox) {
-                editBox.tick();
+                McGuiUtils.tickEditBox(editBox);
             }
         }
     }
 
-    public void onPreRender(@NotNull GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTicks) {
+    public void onPreRender(@NotNull GuiGraphicsExtractor guiGraphics, int mouseX, int mouseY, float partialTicks) {
         guiGraphics.enableScissor(contentLeft(), contentTop(), this.x + this.width, this.y + this.height);
     }
 
-    public void onPostRender(@NotNull GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTicks) {
+    public void onPostRender(@NotNull GuiGraphicsExtractor guiGraphics, int mouseX, int mouseY, float partialTicks) {
         guiGraphics.disableScissor();
     }
 
@@ -235,7 +238,7 @@ public class WidgetsList extends DynamicWidgetSet {
     }
 
 
-    private class Scrollbar extends AbstractWidget {
+    private class Scrollbar extends McWidget implements McGuiEventListener {
 
         private boolean dragging = false;
 
@@ -278,7 +281,7 @@ public class WidgetsList extends DynamicWidgetSet {
         }
 
         @Override
-        protected void renderWidget(GuiGraphics gg, int mx, int my, float pt) {
+        protected void renderWidget(GuiGraphicsExtractor gg, int mx, int my, float pt) {
             if (!this.visible) return;
             int ty = thumbY();
             int th = thumbHeight();

@@ -1,11 +1,13 @@
 package org.vmstudio.visor.mixin.client.gui.screen;
 
 import org.vmstudio.visor.api.client.VRPlayMode;
-import org.vmstudio.visor.api.client.VRStateMode;
 import org.vmstudio.visor.api.client.gui.widgets.lists.DropDownListWidget;
 import org.vmstudio.visor.core.client.VisorState;
-import org.vmstudio.visor.core.client.settings.VRClientSettings;
-import net.minecraft.client.gui.GuiGraphics;
+import org.vmstudio.visor.api.client.settings.VRClientSettings;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
+//? if >=1.21.9 {
+import net.minecraft.client.input.MouseButtonEvent;
+//?}
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.TitleScreen;
 import net.minecraft.network.chat.Component;
@@ -18,6 +20,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 import org.vmstudio.visor.core.client.ClientContext;
+import org.vmstudio.visor.api.compatibility.mcversion.gui.McGuiUtils;
 
 import java.util.Arrays;
 import java.util.List;
@@ -44,8 +47,12 @@ public abstract class TitleScreenMixin extends Screen {
         }
     }
 
-    @Inject(at = @At("TAIL"), method = "render")
-    public void visor$renderVrInitFailedWarning(GuiGraphics gfx, int mouseX, int mouseY, float partialTick, CallbackInfo ci) {
+    //? if >=26.1 {
+    @Inject(at = @At("TAIL"), method = "extractRenderState")
+    //?} else {
+    /*@Inject(at = @At("TAIL"), method = "render")
+    *///?}
+    public void visor$renderVrInitFailedWarning(GuiGraphicsExtractor gfx, int mouseX, int mouseY, float partialTick, CallbackInfo ci) {
         if (!VisorState.isVrInitFailed()) {
             return;
         }
@@ -60,7 +67,7 @@ public abstract class TitleScreenMixin extends Screen {
 
         gfx.fill(x - 1, y - 1, x + boxW + 1, y + boxH + 1, 0xFF5DD9FF);
         gfx.fill(x, y, x + boxW, y + boxH, 0xE6050B14);
-        gfx.drawCenteredString(font, msg, this.width / 2, y + padY, 0xFFFFFFFF);
+        McGuiUtils.drawCenteredString(gfx, font, msg, this.width / 2, y + padY, 0xFFFFFFFF);
     }
 
     @Inject(method = "init", at = @At("TAIL"), order = 9999)
@@ -69,7 +76,18 @@ public abstract class TitleScreenMixin extends Screen {
     }
 
 
+    //? if >=1.21.9 {
     @Inject(method = "mouseClicked", at = @At("HEAD"), cancellable = true)
+    private void visor$dropdownClickPriority(MouseButtonEvent event, boolean doubleClick,
+                                             CallbackInfoReturnable<Boolean> cir) {
+        if (visor$vrModeButton != null
+                && visor$vrModeButton.isExpanded()
+                && visor$vrModeButton.mouseClicked(event.x(), event.y(), event.button())) {
+            cir.setReturnValue(true);
+        }
+    }
+    //?} else {
+    /*@Inject(method = "mouseClicked", at = @At("HEAD"), cancellable = true)
     private void visor$dropdownClickPriority(double mouseX, double mouseY, int button,
                                              CallbackInfoReturnable<Boolean> cir) {
         if (visor$vrModeButton != null
@@ -78,27 +96,24 @@ public abstract class TitleScreenMixin extends Screen {
             cir.setReturnValue(true);
         }
     }
+    *///?}
 
-    @Inject(at = @At("TAIL"), method = "render")
-    public void visor$renderToolTip(GuiGraphics guiGraphics, int i, int j, float f, CallbackInfo ci) {
-        if (VisorState.get() == VRStateMode.INITIALIZED
-                && VRClientSettings.getVrPlayMode().canPlayVR()) {
-            Component text = Component.translatable("visor.messages.vr_auto_switch");
-            guiGraphics.renderTooltip(
-                    font,
-                    font.split(text, 280),
-                    width / 2 - 140 - 12,
-                    17
-            );
+    // 1.21.6 dropped the override, ScreenMixin cancels Screen.renderPanorama
+    //? if >=1.20.5 && <1.21.6 {
+    /*@Inject(method = "renderPanorama", at = @At("HEAD"), cancellable = true)
+    public void visor$noPanorama(CallbackInfo ci) {
+        if (VisorState.get().isActive()) {
+            ci.cancel();
         }
     }
-
-    @ModifyArg(at = @At(value = "INVOKE", target = "Lnet/minecraft/client/renderer/PanoramaRenderer;render(FF)V"), method = "render", index = 1)
+    *///?} elif <1.20.5 {
+    /*@ModifyArg(at = @At(value = "INVOKE", target = "Lnet/minecraft/client/renderer/PanoramaRenderer;render(FF)V"), method = "render", index = 1)
     public float visor$noPanorama(float alpha) {
         return VisorState.get().isActive()
                 ? 0.0F
                 : alpha;
     }
+    *///?}
 
     @Unique
     private void visor$addVRModeButton() {
@@ -113,15 +128,22 @@ public abstract class TitleScreenMixin extends Screen {
 
         VRPlayMode currentMode = VRClientSettings.getVrPlayMode();
 
+        final int menuButtonWidth = 200;
+        final int menuButtonHeight = 20;
+        final int firstRowY = 48;
+        final int rowSpacing = 24;
+        final int gap = 4;
+
         visor$vrModeButton = DropDownListWidget.builder(items)
-                .pos(this.width / 2 + 104, this.height / 4 + 72)
-                .size(76, 20)
+                .pos(this.width / 2 + menuButtonWidth / 2 + gap,
+                        this.height / 4 + firstRowY + rowSpacing)
+                .size(76, menuButtonHeight)
                 .setVisibleItems(modes.length)
                 .setStartIndex(currentMode.ordinal())
                 .setMessage(Component.translatable("visor.options.common.vr_play_mode.tooltip"))
                 .setResponder(index -> {
                     VRPlayMode mode = modes[index];
-                    VRClientSettings.setVrPlayMode(mode);
+                    VisorState.setVrPlayMode(mode);
                     ClientContext.settingsManager.saveOptions();
                     visor$playModeLast = mode;
                 })

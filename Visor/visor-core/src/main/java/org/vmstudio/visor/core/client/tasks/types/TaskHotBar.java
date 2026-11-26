@@ -1,5 +1,6 @@
 package org.vmstudio.visor.core.client.tasks.types;
 
+import org.vmstudio.visor.api.client.input.HapticFeedback;
 import lombok.Getter;
 import lombok.Setter;
 import org.vmstudio.visor.api.VisorAPI;
@@ -9,6 +10,9 @@ import org.vmstudio.visor.api.client.tasks.TaskType;
 import org.vmstudio.visor.api.client.tasks.VisorTask;
 import org.vmstudio.visor.api.common.HandType;
 import org.vmstudio.visor.api.common.addon.VisorAddon;
+import org.vmstudio.visor.api.compatibility.mcversion.McInventory;
+import org.vmstudio.visor.api.compatibility.mcversion.McVersionClientUtils;
+import org.vmstudio.visor.api.server.VRServerSettings;
 import org.vmstudio.visor.core.client.ClientContext;
 import org.vmstudio.visor.core.client.gui.overlays.builtin.hotbar.VROverlayHotBar;
 import net.minecraft.client.player.LocalPlayer;
@@ -70,7 +74,7 @@ public class TaskHotBar extends VisorTask {
     @Override
     public void onRun(@Nullable LocalPlayer player) {
         var inventory = player.getInventory();
-        int slotMainNew = inventory.selected;
+        int slotMainNew = McInventory.selectedSlot(inventory);
         if (resetData || slotMainNew != slotMain) {
             slotMain = slotMainNew;
             resetData = false;
@@ -87,54 +91,57 @@ public class TaskHotBar extends VisorTask {
         }
 
         //OFFHAND
-        if (!ClientContext.decorationRenderer.getHandState(HandType.OFFHAND).isWorldHand()) {
-            hotBarOffhand.setEnabled(
-                    false
-            );
-
-        } else {
-            if (inputPressedOffhand && !pressedOffhand) {
-                ClientContext.inputManager
-                        .triggerHapticPulse(
-                                HandType.OFFHAND, 0.002f
-                        );
+        if(VRServerSettings.isTwoHandedVR()){
+            if (!ClientContext.decorationRenderer.getHandState(HandType.OFFHAND).isWorldHand()) {
                 hotBarOffhand.setEnabled(
-                        true
+                        false
                 );
-                pressedOffhand = true;
 
-            }
-
-            if (pressedOffhand) {
-                slotOffhand = hotBarOffhand.getSelectedSlice();
-                if (slotOffhand != NOT_SELECTED) {
-
-                    if (slotMainBack != NULL
-                            && slotOffhand != slotMainBack) {
-                        //switching back
-                        slotMain = slotMainBack;
-                        inventory.selected = slotMain;
-                        slotMainBack = NULL;
-                    } else if (slotOffhand == slotMain) {
-                        //switching if collide
-                        handleSlotCollision(HandType.MAIN, true);
-                    }
-
-                }
-                if (!inputPressedOffhand) {
+            } else {
+                if (inputPressedOffhand && !pressedOffhand) {
                     ClientContext.inputManager
-                            .triggerHapticPulse(
-                                    HandType.OFFHAND, 0.003f
+                            .triggerHapticPulseMicroSec(
+                                    HandType.OFFHAND, HapticFeedback.HOTBAR_SHOW
                             );
                     hotBarOffhand.setEnabled(
-                            false
+                            true
                     );
-                    pressedOffhand = false;
-                    slotOffhandBack = NULL;
-                    slotMainBack = NULL;
+                    pressedOffhand = true;
+
+                }
+
+                if (pressedOffhand) {
+                    slotOffhand = hotBarOffhand.getSelectedSlice();
+                    if (slotOffhand != NOT_SELECTED) {
+
+                        if (slotMainBack != NULL
+                                && slotOffhand != slotMainBack) {
+                            //switching back
+                            slotMain = slotMainBack;
+                            McInventory.setSelectedSlot(inventory, slotMain);
+                            slotMainBack = NULL;
+                        } else if (slotOffhand == slotMain) {
+                            //switching if collide
+                            handleSlotCollision(HandType.MAIN, true);
+                        }
+
+                    }
+                    if (!inputPressedOffhand) {
+                        ClientContext.inputManager
+                                .triggerHapticPulseMicroSec(
+                                        HandType.OFFHAND, HapticFeedback.HOTBAR_HIDE
+                                );
+                        hotBarOffhand.setEnabled(
+                                false
+                        );
+                        pressedOffhand = false;
+                        slotOffhandBack = NULL;
+                        slotMainBack = NULL;
+                    }
                 }
             }
         }
+
         //MAIN HAND
         if (!ClientContext.decorationRenderer.getHandState(HandType.MAIN).isWorldHand()) {
             hotBarMainHand.setEnabled(
@@ -144,8 +151,8 @@ public class TaskHotBar extends VisorTask {
         } else {
             if (inputPressedMain && !pressedMain) {
                 ClientContext.inputManager
-                        .triggerHapticPulse(
-                                HandType.MAIN, 0.002f
+                        .triggerHapticPulseMicroSec(
+                                HandType.MAIN, HapticFeedback.HOTBAR_SHOW
                         );
                 hotBarMainHand.setEnabled(
                         true
@@ -158,7 +165,7 @@ public class TaskHotBar extends VisorTask {
                 slotMain = hotBarMainHand.getSelectedSlice();
 
                 if (slotMain != NOT_SELECTED) {
-                    inventory.selected = slotMain;
+                    McInventory.setSelectedSlot(inventory, slotMain);
 
                     //if selected item in offhand
                     if (slotOffhandBack != NULL
@@ -173,8 +180,8 @@ public class TaskHotBar extends VisorTask {
                 }
                 if (!inputPressedMain) {
                     ClientContext.inputManager
-                            .triggerHapticPulse(
-                                    HandType.MAIN, 0.003f
+                            .triggerHapticPulseMicroSec(
+                                    HandType.MAIN, HapticFeedback.HOTBAR_HIDE
                             );
                     hotBarMainHand.setEnabled(
                             false
@@ -196,10 +203,10 @@ public class TaskHotBar extends VisorTask {
             if(switchableBack){
                 slotMainBack = slotMain;
             }
-            inventory.selected = slotOffhand == 8
+            McInventory.setSelectedSlot(inventory, slotOffhand == 8
                     ? 0
-                    : slotOffhand + 1;
-            slotMain = inventory.selected;
+                    : slotOffhand + 1);
+            slotMain = McInventory.selectedSlot(inventory);
         }else{
             if(switchableBack) {
                 slotOffhandBack = slotOffhand;
@@ -232,7 +239,7 @@ public class TaskHotBar extends VisorTask {
     @Override
     public boolean isActive(@Nullable LocalPlayer player) {
         if(player == null) return false;
-        if(MC.screen != null) return false;
+        if(McVersionClientUtils.screen() != null) return false;
         if(player.isSpectator()) return false;
         return true;
     }

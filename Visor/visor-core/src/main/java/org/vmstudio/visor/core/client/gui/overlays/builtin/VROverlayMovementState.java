@@ -8,10 +8,12 @@ import org.vmstudio.visor.api.client.gui.overlays.options.types.OverlayOptionsPo
 import org.vmstudio.visor.api.client.gui.overlays.options.types.OverlayOptionsVisibility;
 import org.vmstudio.visor.api.client.player.pose.PoseAnchor;
 import org.vmstudio.visor.api.common.addon.VisorAddon;
+import org.vmstudio.visor.api.compatibility.mcversion.McVersionUtils;
+import org.vmstudio.visor.api.compatibility.mcversion.McVersionClientUtils;
 import org.vmstudio.visor.core.client.ClientContext;
-import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.network.chat.Component;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.List;
@@ -23,7 +25,7 @@ public class VROverlayMovementState extends VROverlayScreen {
 
     protected final OverlayOptionsPose optionsPose;
 
-    protected static final ResourceLocation RESOURCE = new ResourceLocation(
+    protected static final Identifier RESOURCE = McVersionUtils.newResourceLoc(
             "visor:textures/gui/overlays/movement_state.png"
     );
     protected static final int TEX_WIDTH = 162;
@@ -87,11 +89,12 @@ public class VROverlayMovementState extends VROverlayScreen {
 
 
     @Override
-    protected void onRender(GuiGraphics guiGraphics,
+    protected void onRender(GuiGraphicsExtractor guiGraphics,
                             int mouseX, int mouseY,
                             float partialTicks) {
 
         var player = MC.player;
+        if(player == null) return;
 
         GuiTexture stateTexture = null;
 
@@ -156,15 +159,10 @@ public class VROverlayMovementState extends VROverlayScreen {
         return false;
     }
 
-    @Override
-    public boolean supportsRetainedTexture() {
-        return true;
-    }
-
 
     @Override
     protected boolean updateVisibility() {
-        if(MC.screen != null){
+        if(McVersionClientUtils.screen() != null){
             return false;
         }
         if(MC.player == null) return false;

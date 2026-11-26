@@ -11,10 +11,11 @@ import org.vmstudio.visor.api.client.gui.overlays.options.OptionsScreen;
 import org.vmstudio.visor.api.common.addon.VisorAddon;
 import net.minecraft.client.Minecraft;
 import net.minecraft.network.chat.Component;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 import net.minecraft.server.packs.resources.ResourceManager;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.vmstudio.visor.api.compatibility.mcversion.McVersionUtils;
 
 import java.util.function.Consumer;
 
@@ -122,7 +123,7 @@ public class OverlayOptionsIdentity extends OverlayOptionGroup<OverlayOptionsIde
                 } else {
                     ResourceManager resourceManager = Minecraft.getInstance().getResourceManager();
 
-                    var resourceLoc = new ResourceLocation(rawIcon);
+                    var resourceLoc = McVersionUtils.newResourceLoc(rawIcon);
 
                     var resource = resourceManager.getResource(resourceLoc);
                     if (resource.isEmpty()) {
@@ -135,7 +136,7 @@ public class OverlayOptionsIdentity extends OverlayOptionGroup<OverlayOptionsIde
             this.rawIcon = null;
         }
         this.icon = this.rawIcon != null
-                ? new GuiTexture(new ResourceLocation(this.rawIcon))
+                ? new GuiTexture(McVersionUtils.newResourceLoc(this.rawIcon))
                 : VisorAddon.MISSING_ICON;
 
         if((oldValue == null && rawValue != null)

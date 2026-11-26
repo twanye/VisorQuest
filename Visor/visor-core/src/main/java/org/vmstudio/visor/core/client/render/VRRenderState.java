@@ -9,21 +9,18 @@ import org.vmstudio.visor.api.VisorAPI;
 import org.vmstudio.visor.api.client.events.render.RenderPhaseStartedVREvent;
 import org.vmstudio.visor.api.client.player.body.VRBodyType;
 import org.vmstudio.visor.api.client.render.VRSceneType;
+import org.vmstudio.visor.api.compatibility.mcversion.McVersionClientUtils;
+import org.vmstudio.visor.api.compatibility.mcversion.render.McRenderTarget;
 import org.vmstudio.visor.compatibility.immportals.ImmPortalsCompatHelper;
 import org.vmstudio.visor.core.client.ClientContext;
 import org.vmstudio.visor.core.client.VisorState;
 import org.vmstudio.visor.core.client.player.VRClientPlayers;
 import org.vmstudio.visor.api.client.render.RenderPhase;
 import org.vmstudio.visor.api.client.render.VRRenderPass;
-import org.vmstudio.visor.compatibility.shaders.IrisVRBridge;
 import org.vmstudio.visor.extensions.client.WindowExtension;
-import org.vmstudio.visor.core.client.settings.VRClientSettings;
-import org.vmstudio.visor.core.client.settings.options.enums.MirrorMode;
-import me.phoenixra.atumvr.core.session.platform.XRPlatform;
+import org.vmstudio.visor.api.client.settings.VRClientSettings;
+import org.vmstudio.visor.api.client.settings.enums.MirrorMode;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.screens.GenericDirtMessageScreen;
-import net.minecraft.client.gui.screens.ProgressScreen;
-import net.minecraft.client.gui.screens.ReceivingLevelScreen;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
@@ -32,11 +29,6 @@ import java.util.List;
 import static org.vmstudio.visor.core.client.VisorClientImpl.MC;
 
 public class VRRenderState {
-
-    private static final List<VRRenderPass> ANDROID_PASSES = List.of(
-            VRRenderPass.EYE_LEFT,
-            VRRenderPass.EYE_RIGHT
-    );
 
     @Getter @NotNull
     private static RenderPhase phase = RenderPhase.VANILLA;
@@ -68,7 +60,7 @@ public class VRRenderState {
         RenderPhase previous = phase;
         phase = RenderPhase.VANILLA;
         renderPass = VRRenderPass.NULL;
-        MC.mainRenderTarget = vanillaTarget;
+        McRenderTarget.setMainTarget(vanillaTarget);
         if (previous != phase) {
             VisorAPI.eventBus().callEvent(
                     new RenderPhaseStartedVREvent(
@@ -82,7 +74,7 @@ public class VRRenderState {
         RenderPhase previous = phase;
         phase = RenderPhase.VR_GUI;
         renderPass = VRRenderPass.GUI;
-        MC.mainRenderTarget = getTargetForPass(VRRenderPass.GUI);
+        McRenderTarget.setMainTarget(getTargetForPass(VRRenderPass.GUI));
         if (previous != phase) {
             VisorAPI.eventBus().callEvent(
                     new RenderPhaseStartedVREvent(
@@ -102,7 +94,7 @@ public class VRRenderState {
         RenderPhase previous = phase;
         phase = RenderPhase.VR_WORLD;
         VRRenderState.renderPass = renderPass;
-        MC.mainRenderTarget = getTargetForPass(renderPass);
+        McRenderTarget.setMainTarget(getTargetForPass(renderPass));
         if (previous != phase) {
             VisorAPI.eventBus().callEvent(
                     new RenderPhaseStartedVREvent(
@@ -116,7 +108,15 @@ public class VRRenderState {
         RenderPhase previous = phase;
         phase = RenderPhase.VR_MIRROR;
         renderPass = VRRenderPass.NULL;
-        MC.mainRenderTarget = ClientContext.renderer.mainTarget.getMirrorTarget();
+        //? if >=1.21.5 {
+        RenderTarget mirror = ClientContext.renderer.mainTarget.getMirrorTarget();
+        if (vanillaTarget.width != mirror.width || vanillaTarget.height != mirror.height) {
+            McRenderTarget.resize(vanillaTarget, mirror.width, mirror.height);
+        }
+        McRenderTarget.setMainTarget(vanillaTarget);
+        //?} else {
+        /*McRenderTarget.setMainTarget(ClientContext.renderer.mainTarget.getMirrorTarget());
+        *///?}
         if (previous != phase) {
             VisorAPI.eventBus().callEvent(new RenderPhaseStartedVREvent(previous, phase, renderPass));
         }
@@ -216,18 +216,12 @@ public class VRRenderState {
         }
         return MC.level == null
                 || MC.gameRenderer == null
-                || MC.screen instanceof ReceivingLevelScreen
-                || MC.screen instanceof ProgressScreen
-                || MC.screen instanceof GenericDirtMessageScreen
-                || MC.getOverlay() != null;
+                || McVersionClientUtils.isLevelTransitionScreen(McVersionClientUtils.screen())
+                || McVersionClientUtils.overlay() != null;
     }
 
 
     public static List<VRRenderPass> getActivePasses() {
-
-        if (XRPlatform.isAndroid()) {
-            return ANDROID_PASSES;
-        }
 
 
         List<VRRenderPass> list = new ArrayList<>();
@@ -237,8 +231,8 @@ public class VRRenderState {
         var windowModif =  ((WindowExtension) (Object)
                 Minecraft.getInstance().getWindow());
 
-        if (windowModif.visor$getActualScreenWidth() > 0
-                && windowModif.visor$getActualScreenHeight() > 0) {
+        if (windowModif.visor$mcScreenWidth() > 0
+                && windowModif.visor$mcScreenHeight() > 0) {
             MirrorMode mirrorMode = VRClientSettings.getMirrorMode();
             if (mirrorMode == MirrorMode.FIRST_PERSON) {
                 list.add(VRRenderPass.CENTER);

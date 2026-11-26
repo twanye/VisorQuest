@@ -1,6 +1,7 @@
 package org.vmstudio.visor.api.client.gui.widgets.lists;
 
-import com.mojang.blaze3d.systems.RenderSystem;
+import com.mojang.blaze3d.platform.InputConstants;
+import org.vmstudio.visor.api.compatibility.mcversion.gui.McGuiUtils;
 import lombok.Getter;
 import org.vmstudio.visor.api.VisorAPI;
 import org.vmstudio.visor.api.client.gui.helpers.GuiHelper;
@@ -10,11 +11,10 @@ import org.vmstudio.visor.api.client.gui.widgets.info.WidgetInfoButtonImaged;
 import org.vmstudio.visor.api.client.gui.widgets.info.WidgetInfoSelectionList;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
-import net.minecraft.Util;
+import net.minecraft.util.Util;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
-import net.minecraft.client.gui.GuiGraphics;
-import net.minecraft.client.gui.components.AbstractSelectionList;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.Tooltip;
 import net.minecraft.client.gui.narration.NarrationElementOutput;
 import net.minecraft.client.gui.screens.Screen;
@@ -26,13 +26,16 @@ import net.minecraft.sounds.SoundEvents;
 import net.minecraft.util.Mth;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.vmstudio.visor.api.compatibility.mcversion.gui.McSelectionList;
 
 import java.util.*;
 import java.util.function.Consumer;
 import java.util.function.Function;
+import org.vmstudio.visor.api.compatibility.mcversion.render.McGlState;
+import org.vmstudio.visor.api.compatibility.mcversion.McVersionClientUtils;
 
 
-public class TexturedSelectionList extends AbstractSelectionList<TexturedSelectionList.TexturedRow> {
+public class TexturedSelectionList extends McSelectionList<TexturedSelectionList.TexturedRow> {
 
     @Getter
     private final WidgetInfoSelectionList widgetInfo;
@@ -68,7 +71,6 @@ public class TexturedSelectionList extends AbstractSelectionList<TexturedSelecti
     private boolean wasHoveredOrFocused;
     @Nullable
     private String tooltipEntryIdForTimer;
-    private Screen visor$attachedTo;
 
     /**
      * Tracked for tooltip: the entry currently hovered.
@@ -82,8 +84,8 @@ public class TexturedSelectionList extends AbstractSelectionList<TexturedSelecti
         super(Minecraft.getInstance(),
                 widgetInfo.getWidth(),
                 widgetInfo.getHeight(),
+                widgetInfo.getX(),
                 widgetInfo.getY(),
-                widgetInfo.getY() + widgetInfo.getHeight(),
                 widgetInfo.getEntryHeight()
         );
 
@@ -96,7 +98,7 @@ public class TexturedSelectionList extends AbstractSelectionList<TexturedSelecti
 
         this.onSelected = onSelected;
 
-        this.setLeftPos(widgetInfo.getX());
+
         this.setRenderTopAndBottom(false);
         this.setRenderBackground(false);
         this.setRenderSelection(false);
@@ -104,7 +106,7 @@ public class TexturedSelectionList extends AbstractSelectionList<TexturedSelecti
         resetEntries(rawEntries);
     }
 
-    // ── Column geometry helpers ──────────────────────────────────────
+    // Column geometry helpers
 
     /**
      * Total width available for columns (excludes scrollbar + padding).
@@ -141,7 +143,7 @@ public class TexturedSelectionList extends AbstractSelectionList<TexturedSelecti
         return -1;
     }
 
-    // ── Row building ─────────────────────────────────────────────────
+    // Row building
 
     /**
      * Pack a flat list of entries into rows of N columns.
@@ -157,10 +159,10 @@ public class TexturedSelectionList extends AbstractSelectionList<TexturedSelecti
         }
     }
 
-    // ── Rendering ────────────────────────────────────────────────────
+    //Rendering
 
     @Override
-    public void render(@NotNull GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTick) {
+    public void renderContents(@NotNull GuiGraphicsExtractor guiGraphics, int mouseX, int mouseY, float partialTick) {
         // Determine hovered entry across columns
         this.hoveredEntry = null;
         if (this.isMouseOver(mouseX, mouseY)) {
@@ -184,21 +186,21 @@ public class TexturedSelectionList extends AbstractSelectionList<TexturedSelecti
         }
 
         this.enableScissor(guiGraphics);
-        this.renderList(guiGraphics, mouseX, mouseY, partialTick);
+        this.renderRows(guiGraphics, mouseX, mouseY, partialTick);
         guiGraphics.disableScissor();
 
-        int scrollX = this.getScrollbarPosition();
-        int maxScroll = this.getMaxScroll();
+        int scrollX = this.scrollbarX();
+        int maxScroll = this.maxScroll();
         if (maxScroll > 0) {
-            int trackTop = this.y0 + this.paddingTop;
-            int trackBottom = this.y1 - this.paddingTop;
+            int trackTop = listTop() + this.paddingTop;
+            int trackBottom = listBottom() - this.paddingTop;
             int viewH = trackBottom - trackTop;
 
             int thumbH = (int) (viewH * (float) viewH / ((float) viewH + maxScroll));
             thumbH = Mth.clamp(thumbH, 32, viewH - 8);
 
             int thumbY = trackTop
-                    + (int) (this.getScrollAmount() * (viewH - thumbH) / (float) maxScroll);
+                    + (int) (this.scrollValue() * (viewH - thumbH) / (float) maxScroll);
 
             var scrollBarTex = scrolling
                     ? widgetInfo.getTextureScrollBarActive()
@@ -209,27 +211,27 @@ public class TexturedSelectionList extends AbstractSelectionList<TexturedSelecti
                     scrollBarWidth, thumbH
             );
         }
-        updateTooltip();
-        RenderSystem.disableBlend();
+        updateTooltip(guiGraphics, mouseX, mouseY);
+        McGlState.disableBlend();
     }
 
     @Override
-    protected void renderList(@NotNull GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTick) {
+    protected void renderRows(@NotNull GuiGraphicsExtractor guiGraphics, int mouseX, int mouseY, float partialTick) {
         int i = this.getRowLeft();
         int j = this.getRowWidth();
-        int k = this.itemHeight - paddingTop;
+        int k = entryHeight() - paddingTop;
         int l = this.getItemCount();
 
         for (int m = 0; m < l; ++m) {
             int n = this.getRowTop(m);
             int o = this.getRowBottom(m);
-            if (o >= this.y0 && n <= this.y1) {
-                this.renderItem(guiGraphics, mouseX, mouseY, partialTick, m, i, n, j, k);
+            if (o >= listTop() && n <= listBottom()) {
+                this.renderRow(guiGraphics, mouseX, mouseY, partialTick, m, i, n, j, k);
             }
         }
     }
 
-    private void updateTooltip() {
+    private void updateTooltip(GuiGraphicsExtractor guiGraphics, int mouseX, int mouseY) {
         Function<String, Component> factory = widgetInfo.getTooltip();
         if (factory == null) return;
 
@@ -259,31 +261,24 @@ public class TexturedSelectionList extends AbstractSelectionList<TexturedSelecti
 
         Screen screen = getAttachedTo();
         if (screen != null) {
-            screen.setTooltipForNextRenderPass(this.tooltip, DefaultTooltipPositioner.INSTANCE, false);
+            McGuiUtils.setTooltipForNextRenderPass(
+                    screen, guiGraphics,
+                    this.tooltip, DefaultTooltipPositioner.INSTANCE,
+                    mouseX, mouseY, false
+            );
         }
     }
 
+    //Use Only during rendering of this widget!!!!
     private Screen getAttachedTo() {
-        if (visor$attachedTo == null) {
-            if (VisorAPI.clientState().stateMode().isNotActive()) {
-                visor$attachedTo = Minecraft.getInstance().screen;
-                return visor$attachedTo;
-            }
-            VROverlayScreen overlay = VisorAPI.client().getGuiManager()
-                    .getCursorHandler()
-                    .getFocusedOverlayScreen();
-
-            if (overlay != null) {
-                visor$attachedTo = overlay;
-            } else {
-                visor$attachedTo = Minecraft.getInstance().screen;
-            }
-            return visor$attachedTo;
+        VROverlayScreen overlay = VROverlayScreen.getRenderingOverlay();
+        if (overlay != null) {
+            return overlay;
         }
-        return visor$attachedTo;
+        return McVersionClientUtils.screen();
     }
 
-    // ── Entry management (public API unchanged) ──────────────────────
+    //Entry management
 
     public void filterEntries(
             @NotNull Function<Map.Entry<String, String>, Boolean> filter
@@ -337,21 +332,21 @@ public class TexturedSelectionList extends AbstractSelectionList<TexturedSelecti
     }
 
     public void scrollTo(@NotNull TexturedEntry entry) {
-        int maxScroll = this.getMaxScroll();
+        int maxScroll = this.maxScroll();
         if (maxScroll <= 0) return;
 
         // Find which row contains this entry
         for (int i = 0; i < this.getItemCount(); i++) {
             TexturedRow row = this.children().get(i);
             if (row.contains(entry)) {
-                double desired = (double) i * this.itemHeight;
+                double desired = (double) i * entryHeight();
                 this.setScrollAmount(desired);
                 return;
             }
         }
     }
 
-    // ── Selection ────────────────────────────────────────────────────
+    //Selection
 
     /**
      * Select a logical entry by reference.
@@ -365,6 +360,11 @@ public class TexturedSelectionList extends AbstractSelectionList<TexturedSelecti
             this.selectedEntry = null;
             onSelected.accept(null);
         }
+    }
+
+
+    public void clearSelection() {
+        this.selectedEntry = null;
     }
 
     /**
@@ -398,11 +398,10 @@ public class TexturedSelectionList extends AbstractSelectionList<TexturedSelecti
         handler.play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1.0F));
     }
 
-    // ── Scrolling ────────────────────────────────────────────────────
+    //Scrolling
 
     @Override
-    protected void updateScrollingState(double mouseX, double mouseY, int button) {
-        super.updateScrollingState(mouseX, mouseY, button);
+    protected void onScrollStateUpdated(double mouseX, double mouseY, int button) {
         if (scrolling) {
             lastDragCall = System.currentTimeMillis();
         }
@@ -418,17 +417,17 @@ public class TexturedSelectionList extends AbstractSelectionList<TexturedSelecti
 
     @Override
     public boolean mouseReleased(double mouseX, double mouseY, int button) {
-        if (button == 0) {
+        if (button == InputConstants.MOUSE_BUTTON_LEFT) {
             this.scrolling = false;
         }
         return super.mouseReleased(mouseX, mouseY, button);
     }
 
-    // ── Layout overrides ─────────────────────────────────────────────
+    //Layout overrides
 
     @Override
-    protected int getScrollbarPosition() {
-        return this.x0 + this.width - (scrollBarWidth + 2);
+    protected int scrollbarX() {
+        return listLeft() + this.width - (scrollBarWidth + 2);
     }
 
     @Override
@@ -438,21 +437,21 @@ public class TexturedSelectionList extends AbstractSelectionList<TexturedSelecti
 
     @Override
     public int getRowLeft() {
-        return this.x0 + paddingLeft;
+        return listLeft() + paddingLeft;
     }
 
     @Override
-    protected int getRowTop(int index) {
-        return this.y0 + paddingTop - (int) this.getScrollAmount() + index * this.itemHeight + this.headerHeight;
+    public int getRowTop(int index) {
+        return listTop() + paddingTop - (int) this.scrollValue() + index * entryHeight() + listHeaderHeight();
     }
 
     @Override
-    protected int getRowBottom(int index) {
+    public int getRowBottom(int index) {
         return super.getRowBottom(index) - paddingTop;
     }
 
     @Override
-    public void updateNarration(@NotNull NarrationElementOutput narrationElementOutput) {
+    protected void updateListNarration(@NotNull NarrationElementOutput narrationElementOutput) {
     }
 
     // ══════════════════════════════════════════════════════════════════
@@ -485,7 +484,7 @@ public class TexturedSelectionList extends AbstractSelectionList<TexturedSelecti
         }
 
         @Override
-        public void renderBack(@NotNull GuiGraphics guiGraphics,
+        protected void renderRowBack(@NotNull GuiGraphicsExtractor guiGraphics,
                                int index,
                                int top, int left,
                                int rowWidth, int rowHeight,
@@ -528,7 +527,7 @@ public class TexturedSelectionList extends AbstractSelectionList<TexturedSelecti
         }
 
         @Override
-        public void render(@NotNull GuiGraphics guiGraphics,
+        protected void renderRow(@NotNull GuiGraphicsExtractor guiGraphics,
                            int index,
                            int top, int left,
                            int rowWidth, int rowHeight,
@@ -564,7 +563,7 @@ public class TexturedSelectionList extends AbstractSelectionList<TexturedSelecti
 
         @Override
         public boolean mouseClicked(double mouseX, double mouseY, int button) {
-            if (button == 0) {
+            if (button == InputConstants.MOUSE_BUTTON_LEFT) {
                 int col = getColumnAtX(mouseX);
                 TexturedEntry entry = getEntry(col);
                 if (entry != null) {

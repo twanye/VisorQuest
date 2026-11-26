@@ -1,6 +1,17 @@
 package org.vmstudio.visor.compatibility.iris.mixin;
 
-import me.jellysquid.mods.sodium.client.gl.shader.GlProgram;
+//? if >=1.21 {
+import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.Pseudo;
+
+// Iris 1.8 deleted compat.sodium.impl.shader_overrides (SodiumPrograms rewrite)
+@Pseudo
+@Mixin(targets = "net.irisshaders.iris.compat.sodium.impl.shader_overrides.IrisChunkProgramOverrides", remap = false)
+public class IrisChunkProgramOverridesMixin {
+}
+//?} else {
+
+/*import me.jellysquid.mods.sodium.client.gl.shader.GlProgram;
 import me.jellysquid.mods.sodium.client.render.chunk.vertex.format.ChunkVertexType;
 import net.irisshaders.iris.Iris;
 import net.irisshaders.iris.compat.sodium.impl.shader_overrides.IrisChunkProgramOverrides;
@@ -18,7 +29,7 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.Redirect;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.vmstudio.visor.api.client.render.VRRenderPass;
-import org.vmstudio.visor.compatibility.ClassDependentMixin;
+import org.vmstudio.visor.compatibility.MixinGate;
 import org.vmstudio.visor.compatibility.iris.IrisCompatHelper;
 import org.vmstudio.visor.compatibility.iris.extensions.IrisPipelineManagerExtension;
 import org.vmstudio.visor.core.client.VisorClientImpl;
@@ -28,7 +39,7 @@ import org.vmstudio.visor.core.client.render.VRRenderState;
 import java.util.EnumMap;
 
 @Pseudo
-@ClassDependentMixin("me.jellysquid.mods.sodium.client.render.chunk.vertex.format.ChunkVertexType")
+@MixinGate(classes = "me.jellysquid.mods.sodium.client.render.chunk.vertex.format.ChunkVertexType")
 @Mixin(value = IrisChunkProgramOverrides.class, remap = false)
 public class IrisChunkProgramOverridesMixin {
     @Shadow
@@ -100,7 +111,7 @@ public class IrisChunkProgramOverridesMixin {
     }
 
     @Inject(method = "deleteShaders", at = @At("HEAD"))
-    private void visor$deletePassPrograms(CallbackInfo ci) {
+    private void visor$onDeleteShaders(CallbackInfo ci) {
         visor$deletePassPrograms();
     }
 
@@ -117,3 +128,4 @@ public class IrisChunkProgramOverridesMixin {
         visor$passPrograms.clear();
     }
 }
+*///?}

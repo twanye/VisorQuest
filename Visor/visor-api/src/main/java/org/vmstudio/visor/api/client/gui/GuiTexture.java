@@ -1,14 +1,15 @@
 package org.vmstudio.visor.api.client.gui;
 
 import lombok.Getter;
-import net.minecraft.client.gui.GuiGraphics;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
+import net.minecraft.resources.Identifier;
 import org.jetbrains.annotations.NotNull;
+import org.vmstudio.visor.api.compatibility.mcversion.gui.McGuiUtils;
 
 @Getter
 public class GuiTexture {
 
-    private final @NotNull ResourceLocation resourceLocation;
+    private final @NotNull Identifier resourceLocation;
     private final int x, y;
     private final int width, height;
     private final int textureWidth, textureHeight;
@@ -21,7 +22,7 @@ public class GuiTexture {
      *
      * @param resourceLocation the resource location
      */
-    public GuiTexture(@NotNull ResourceLocation resourceLocation) {
+    public GuiTexture(@NotNull Identifier resourceLocation) {
         this.resourceLocation = resourceLocation;
         this.x = 0;
         this.y = 0;
@@ -41,7 +42,7 @@ public class GuiTexture {
      * @param width            source region width
      * @param height           source region height
      */
-    public GuiTexture(@NotNull ResourceLocation resourceLocation,
+    public GuiTexture(@NotNull Identifier resourceLocation,
                       int x, int y,
                       int width, int height) {
         this.resourceLocation = resourceLocation;
@@ -66,7 +67,7 @@ public class GuiTexture {
      * @param textureHeight    full texture height
      */
     public GuiTexture(
-            @NotNull ResourceLocation resourceLocation,
+            @NotNull Identifier resourceLocation,
             int x, int y,
             int width, int height,
             int textureWidth, int textureHeight) {
@@ -84,18 +85,19 @@ public class GuiTexture {
     /**
      * Draws this texture region with specified position and size.
      *
-     * @param gui          the GuiGraphics instance
+     * @param gui          the GuiGraphicsExtractor instance
      * @param xPos         X coordinate to draw at
      * @param yPos         Y coordinate to draw at
      * @param targetWidth  desired width
      * @param targetHeight desired height
      */
-    public void blit(@NotNull GuiGraphics gui,
+    public void blit(@NotNull GuiGraphicsExtractor gui,
                      int xPos, int yPos,
                      int targetWidth, int targetHeight) {
 
         if (drawMode == DrawMode.STRETCH) {
-            gui.blit(
+            McGuiUtils.blit(
+                    gui,
                     resourceLocation,
                     xPos, yPos,
                     targetWidth, targetHeight,
@@ -104,7 +106,8 @@ public class GuiTexture {
                     textureWidth, textureHeight
             );
         } else {
-            gui.blit(
+            McGuiUtils.blit(
+                    gui,
                     resourceLocation,
                     xPos, yPos,
                     x, y,
@@ -117,11 +120,11 @@ public class GuiTexture {
     /**
      * Draws this texture region with specified position and original size
      *
-     * @param gui          the GuiGraphics instance
+     * @param gui          the GuiGraphicsExtractor instance
      * @param xPos         X coordinate to draw at
      * @param yPos         Y coordinate to draw at
      */
-    public void blit(@NotNull GuiGraphics gui,
+    public void blit(@NotNull GuiGraphicsExtractor gui,
                      int xPos, int yPos) {
         blit(gui, xPos, yPos, textureWidth, textureHeight);
     }
@@ -132,7 +135,7 @@ public class GuiTexture {
      * @param location the resource location
      * @return the texture
      */
-    public static GuiTexture of(@NotNull ResourceLocation location){
+    public static GuiTexture of(@NotNull Identifier location){
         return new GuiTexture(location);
     }
 

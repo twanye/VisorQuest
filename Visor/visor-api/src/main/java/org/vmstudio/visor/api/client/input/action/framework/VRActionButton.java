@@ -5,7 +5,6 @@ import lombok.Getter;
 import me.phoenixra.atumvr.api.enums.ControllerType;
 import me.phoenixra.atumvr.api.input.action.VRActionIdentifier;
 import me.phoenixra.atumvr.api.input.action.data.VRActionDataButton;
-import me.phoenixra.atumvr.api.input.profile.types.*;
 import me.phoenixra.atumvr.core.input.profile.XRInteractionProfile;
 import me.phoenixra.atumvr.api.input.profile.VRInteractionProfileType;
 import org.vmstudio.visor.api.VisorAPI;
@@ -121,16 +120,18 @@ public abstract class VRActionButton implements VRAction {
         if(actionSet.isKeyModifiersActive(currentProfile.getType())) {
             boolean leftPressed = ActionBinding.getKeyModifier(currentProfile, ControllerType.LEFT).isPressed();
             boolean rightPressed = ActionBinding.getKeyModifier(currentProfile, ControllerType.RIGHT).isPressed();
-            if(leftPressed && rightPressed){
-                return;
-            }
-            if(!leftPressed && keyModifier == ActionKeyModifierType.LEFT_TRIGGER){
-                return;
-            }
-            if(!rightPressed && keyModifier == ActionKeyModifierType.RIGHT_TRIGGER){
-                return;
-            }
-            if((leftPressed || rightPressed) && keyModifier == ActionKeyModifierType.OFF){
+            boolean blocked = (leftPressed && rightPressed)
+                    || (!leftPressed && keyModifier == ActionKeyModifierType.LEFT_TRIGGER)
+                    || (!rightPressed && keyModifier == ActionKeyModifierType.RIGHT_TRIGGER)
+                    || ((leftPressed || rightPressed) && keyModifier == ActionKeyModifierType.OFF);
+            if(blocked){
+                if(pressed){
+                    var gatedData = getButtonData(actionBinding, currentProfile, leftHanded);
+                    if(gatedData == null || !gatedData.isPressed()){
+                        releaseDelayed = true;
+                        pressDelayed = false;
+                    }
+                }
                 return;
             }
         }
@@ -214,8 +215,10 @@ public abstract class VRActionButton implements VRAction {
     }
     public void forceRelease(){
         pressDelayed = false;
-        releaseDelayed = true;
-        if (!pressed) {
+        if (pressed) {
+            releaseDelayed = true;
+        } else {
+            releaseDelayed = false;
             forcedState = false;
         }
     }
@@ -240,15 +243,7 @@ public abstract class VRActionButton implements VRAction {
                                                                           boolean keyModifiersActive) {
         var list = new ArrayList<VRActionIdentifier>();
         list.add(ActionBinding.ID_EMPTY);
-        list.addAll(switch (profileType){
-            case VALVE_INDEX -> ValveIndexProfile.BUTTON_IDS;
-            case OCULUS_TOUCH -> OculusTouchProfile.BUTTON_IDS;
-            case VIVE -> ViveProfile.BUTTON_IDS;
-            case VIVE_COSMOS -> ViveCosmosProfile.BUTTON_IDS;
-            case HP_MIXED_REALITY -> HpMixedRealityProfile.BUTTON_IDS;
-            case WINDOWS_MOTION -> WindowsMotionProfile.BUTTON_IDS;
-            case VIVE_TRACKER -> List.of();
-        });
+        list.addAll(VRInteractionProfileType.getButtonIdsOf(profileType));
         if(keyModifiersActive){
             list.removeIf(it-> it.getValue().contains("trigger"));
         }

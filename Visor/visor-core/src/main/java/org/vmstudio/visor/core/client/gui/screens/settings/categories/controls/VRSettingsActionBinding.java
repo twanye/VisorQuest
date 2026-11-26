@@ -1,5 +1,6 @@
 package org.vmstudio.visor.core.client.gui.screens.settings.categories.controls;
 
+import org.vmstudio.visor.api.compatibility.mcversion.gui.McGuiUtils;
 import com.google.common.collect.Lists;
 import me.phoenixra.atumvr.api.input.action.VRActionIdentifier;
 import me.phoenixra.atumvr.api.misc.color.AtumColor;
@@ -20,9 +21,9 @@ import org.vmstudio.visor.core.client.gui.screens.settings.OptionWidgetEntry;
 import org.vmstudio.visor.core.client.gui.screens.settings.VROptionsSet;
 import org.vmstudio.visor.core.client.gui.screens.settings.VRSettingsScreen;
 import org.vmstudio.visor.core.client.provider.openxr.XrProvider;
-import org.vmstudio.visor.core.client.settings.VRClientSettings;
+import org.vmstudio.visor.api.client.settings.VRClientSettings;
 import org.vmstudio.visor.core.client.settings.VROptionWidgetType;
-import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.Renderable;
 import net.minecraft.client.gui.components.Tooltip;
 import net.minecraft.client.gui.components.events.GuiEventListener;
@@ -316,7 +317,7 @@ public class VRSettingsActionBinding extends VROptionsSet {
     }
 
     @Override
-    public void onPostRender(@NotNull GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTicks) {
+    public void onPostRender(@NotNull GuiGraphicsExtractor guiGraphics, int mouseX, int mouseY, float partialTicks) {
         var scaleHelper = getScreen().getScaleHelper();
 
         //Action name
@@ -454,7 +455,7 @@ public class VRSettingsActionBinding extends VROptionsSet {
     }
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double delta) {
-        listWidget.mouseScrolled(mouseX, mouseY, delta);
+        McGuiUtils.mouseScrolled(listWidget, mouseX, mouseY, delta);
         return super.mouseScrolled(mouseX, mouseY, delta);
     }
 

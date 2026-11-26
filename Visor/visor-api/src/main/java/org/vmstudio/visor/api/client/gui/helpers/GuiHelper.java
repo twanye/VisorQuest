@@ -1,9 +1,9 @@
 package org.vmstudio.visor.api.client.gui.helpers;
 
-import com.mojang.blaze3d.vertex.PoseStack;
-import net.minecraft.Util;
+import net.minecraft.util.Util;
 import net.minecraft.client.gui.Font;
-import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
+import org.vmstudio.visor.api.compatibility.mcversion.gui.McGuiUtils;
 import net.minecraft.util.Mth;
 import org.jetbrains.annotations.NotNull;
 
@@ -27,7 +27,7 @@ public class GuiHelper {
      * @param scale       fixed text scale (1.0 = default)
      * @param center      whether to center the text when it fits
      */
-    public static void renderScrollableText(@NotNull GuiGraphics guiGraphics,
+    public static void renderScrollableText(@NotNull GuiGraphicsExtractor guiGraphics,
                                             @NotNull Font font,
                                             @NotNull String text,
                                             int color,
@@ -45,7 +45,7 @@ public class GuiHelper {
             int y = center ? posY + (height - textHeight) / 2 : posY;
 
             if (textWidth <= width) {
-                guiGraphics.drawString(font, text, x, y, color, false);
+                McGuiUtils.drawString(guiGraphics, font, text, x, y, color, false);
             } else {
                 int overflow = textWidth - width;
                 double d = (double) Util.getMillis() / 1000.0;
@@ -54,55 +54,52 @@ public class GuiHelper {
                 int offset = (int) Mth.lerp(f, 0.0, (double) overflow);
 
                 guiGraphics.enableScissor(posX, posY, posX + width, posY + height);
-                guiGraphics.drawString(font, text, posX - offset, y, color, false);
+                McGuiUtils.drawString(guiGraphics, font, text, posX - offset, y, color, false);
                 guiGraphics.disableScissor();
             }
             return;
         }
 
         float scaledTextWidth = font.width(text) * scale;
-
-        PoseStack poseStack = guiGraphics.pose();
-
-        poseStack.pushPose();
-        poseStack.translate(posX, posY, 0);
-        poseStack.scale(scale, scale, 1f);
-        poseStack.translate(-posX, -posY, 0);
-
         float areaW = width / scale;
         float areaH = height / scale;
         int textWidth = font.width(text);
 
+        int x = posX;
         int y = center
                 ? posY + Math.round((areaH - font.lineHeight) / 2f)
                 : posY;
 
-        if (scaledTextWidth <= width) {
-            int x = center
-                    ? posX + Math.round((areaW - textWidth) / 2f)
-                    : posX;
+        // 1.21.4+ transforms the scissor by the pose, so it must be pushed outside the text scale
+        guiGraphics.enableScissor(posX, posY, posX + width, posY + height);
+        McGuiUtils.pushPose(guiGraphics);
 
-            guiGraphics.enableScissor(posX, posY, posX + width, posY + height);
-            guiGraphics.drawString(font, text, x, y, color, false);
-            guiGraphics.disableScissor();
+        if (scaledTextWidth <= width) {
+            if (center) {
+                x = posX + Math.round((areaW - textWidth) / 2f);
+            }
         } else {
             float overflow = scaledTextWidth - width;
             double d = (double) Util.getMillis() / 1000.0;
             double e = Math.max((double) overflow * 0.5, 3.0);
             double f = Math.sin((Math.PI / 2.0) * Math.cos((Math.PI * 2.0) * d / e)) / 2.0 + 0.5;
-            int offset = (int) Mth.lerp(f, 0.0, (double) overflow);
+            // not truncated: below scale 1 the lost pixel would clip the last glyph
+            float offset = (float) Mth.lerp(f, 0.0, (double) overflow);
 
-            int x = posX - Math.round(offset / scale);
-
-            guiGraphics.enableScissor(posX, posY, posX + width, posY + height);
-            guiGraphics.drawString(font, text, x, y, color, false);
-            guiGraphics.disableScissor();
+            McGuiUtils.translate(guiGraphics, -offset, 0);
         }
 
-        poseStack.popPose();
+        McGuiUtils.translate(guiGraphics, posX, posY);
+        McGuiUtils.scale(guiGraphics, scale, scale);
+        McGuiUtils.translate(guiGraphics, -posX, -posY);
+
+        McGuiUtils.drawString(guiGraphics, font, text, x, y, color, false);
+
+        McGuiUtils.popPose(guiGraphics);
+        guiGraphics.disableScissor();
     }
 
-    public static void renderScalableText(@NotNull GuiGraphics guiGraphics,
+    public static void renderScalableText(@NotNull GuiGraphicsExtractor guiGraphics,
                                           @NotNull Font font,
                                           @NotNull String text,
                                           int color,
@@ -121,7 +118,7 @@ public class GuiHelper {
         );
     }
 
-    public static void renderScalableText(@NotNull GuiGraphics guiGraphics,
+    public static void renderScalableText(@NotNull GuiGraphicsExtractor guiGraphics,
                                           @NotNull Font font,
                                           @NotNull String text,
                                           int color,
@@ -151,24 +148,22 @@ public class GuiHelper {
             drawY = targetY;
         }
 
-        // Save current transform state
-        PoseStack poseStack = guiGraphics.pose();
-        poseStack.pushPose();
+        McGuiUtils.pushPose(guiGraphics);
 
         // Apply the transform FIRST, before scissoring
-        poseStack.translate(drawX, drawY, 0);
-        poseStack.scale(scale, scale, 1f);
-        poseStack.translate(-drawX, -drawY, 0);
+        McGuiUtils.translate(guiGraphics, drawX, drawY);
+        McGuiUtils.scale(guiGraphics, scale, scale);
+        McGuiUtils.translate(guiGraphics, -drawX, -drawY);
 
         // Calculate text position in the transformed space
         float baseX = drawX;
         float baseY = drawY;
 
-        guiGraphics.drawString(font, text, Math.round(baseX), Math.round(baseY), color, false);
+        McGuiUtils.drawString(guiGraphics, font, text, Math.round(baseX), Math.round(baseY), color, false);
 
 
         // Restore transform state
-        poseStack.popPose();
+        McGuiUtils.popPose(guiGraphics);
 
     }
 

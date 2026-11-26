@@ -1,5 +1,7 @@
 package org.vmstudio.visor.mixin.client.world;
 
+import org.vmstudio.visor.api.compatibility.mcversion.McPlayerInput;
+import com.llamalad7.mixinextras.sugar.Local;
 import org.vmstudio.visor.api.client.player.pose.PlayerPoseType;
 import org.vmstudio.visor.api.common.HandType;
 import org.vmstudio.visor.core.client.ClientContext;
@@ -8,21 +10,29 @@ import org.vmstudio.visor.core.client.tasks.types.movement.vehicle.TaskBoat;
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
-import net.minecraft.world.entity.vehicle.Boat;
+//? if >=1.21.2 {
+import net.minecraft.world.entity.vehicle.boat.AbstractBoat;
+//?} else {
+/*import net.minecraft.world.entity.vehicle.Boat;
+*///?}
 import net.minecraft.world.level.Level;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
+import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Constant;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.ModifyConstant;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
-import org.spongepowered.asm.mixin.injection.callback.LocalCapture;
 
 import static org.vmstudio.visor.core.client.VisorClientImpl.MC;
 
 
-@Mixin(Boat.class)
+//? if >=1.21.2 {
+@Mixin(AbstractBoat.class)
+//?} else {
+/*@Mixin(Boat.class)
+*///?}
 public abstract class BoatMixin extends Entity {
 
     @Shadow
@@ -42,98 +52,103 @@ public abstract class BoatMixin extends Entity {
     }
 
     @ModifyConstant(constant = @Constant(floatValue = 1F, ordinal = 0), method = "controlBoat()V")
-    public float visor$inputLeft(float f) {
-        return MC.player.input.leftImpulse;
+    public float visor$analogTurnLeft(float vanillaStep) {
+        return visor$hasAnalogSteering() ? McPlayerInput.leftImpulse(MC.player) : vanillaStep;
     }
 
     @ModifyConstant(constant = @Constant(floatValue = 1F, ordinal = 1), method = "controlBoat()V")
-    public float visor$inputRight(float f) {
-        return -MC.player.input.leftImpulse;
+    public float visor$analogTurnRight(float vanillaStep) {
+        return visor$hasAnalogSteering() ? -McPlayerInput.leftImpulse(MC.player) : vanillaStep;
     }
 
-    /**
-     * Applying values received in TrackerBoat
-     */
-    @Inject(at = @At(value = "INVOKE", target = "Lnet/minecraft/world/entity/vehicle/Boat;setDeltaMovement(Lnet/minecraft/world/phys/Vec3;)V", shift = At.Shift.BEFORE), method = "controlBoat", locals = LocalCapture.CAPTURE_FAILHARD, cancellable = true)
-    public void visor$rowingInVR(CallbackInfo ci, float forward) {
+    @Unique
+    private boolean visor$hasAnalogSteering() {
+        return VisorState.get().isActive() && MC.player != null;
+    }
+
+    //keep @Local without variable name, to search by type
+    //? if >=1.21.2 {
+    @Inject(at = @At(value = "INVOKE", target = "Lnet/minecraft/world/entity/vehicle/boat/AbstractBoat;setDeltaMovement(Lnet/minecraft/world/phys/Vec3;)V", shift = At.Shift.BEFORE), method = "controlBoat", cancellable = true)
+    public void visor$rowingInVR(CallbackInfo ci, @Local float forward) {
+        visor$applyRowing(ci, forward);
+    }
+    //?} else {
+    /*@Inject(at = @At(value = "INVOKE", target = "Lnet/minecraft/world/entity/vehicle/Boat;setDeltaMovement(Lnet/minecraft/world/phys/Vec3;)V", shift = At.Shift.BEFORE), method = "controlBoat", cancellable = true)
+    public void visor$rowingInVR(CallbackInfo ci, @Local float forward) {
+        visor$applyRowing(ci, forward);
+    }
+    *///?}
+
+    @Unique
+    private void visor$applyRowing(CallbackInfo ci, float forward) {
         if (VisorState.get().isNotActive()) {
             return;
         }
         ci.cancel();
 
-        double momentumX, momentumZ;
-
         if (this.inputUp) {
-            float yaw = ClientContext.localPlayer
-                    .getPoseData(PlayerPoseType.TICK)
-                    .getHand(HandType.OFFHAND).getYawDegrees();
-            float end = this.getYRot() % 360;
-            float start = yaw;
-            float difference = Math.abs(end - start);
-
-            if (difference > 180) {
-                if (end > start) {
-                    start += 360;
-                } else {
-                    end += 360;
-                }
-            }
-
-            difference = end - start;
-
-            forward = 0;
-
-            if (Math.abs(difference) < 60) {
-                forward = 0.06f;
-            } else if (Math.abs(difference) > 150) {
-                forward = -0.01F;
-            } else if (difference < 0 || difference > 0) {
-                forward = 0.008f;
-            }
+            forward = visor$steerTowardsHand();
             this.deltaRotation = 0;
-
-            momentumX = Mth.sin(-this.getYRot() * Mth.DEG_TO_RAD) * forward;
-            momentumZ = Mth.cos(this.getYRot() * Mth.DEG_TO_RAD) * forward;
         } else {
-
-            TaskBoat trackerBoat = TaskBoat.getInstance();
-            if (trackerBoat.isRowing()) {
-                this.deltaRotation += (float) (trackerBoat.getOarLeft() / 1.5);
-                this.deltaRotation -= (float) (trackerBoat.getOarRight() / 1.5);
-
-                if (deltaRotation < 0) {
-                    this.inputLeft = true;
-                }
-                if (deltaRotation > 0) {
-                    this.inputRight = true;
-                }
-
-                forward = Math.min(0.04F, 0.06f * trackerBoat.getMoveForward());
-                if (forward > 0) {
-                    this.inputUp = true;
-                }
-
-            }else {
-                //to reduce rotation speed for controller movement
-                //too fast rotation causes nausea
-                deltaRotation = deltaRotation * 0.8f;
-                forward = forward * 0.7f;
-            }
-
-
-
-            momentumX = Mth.sin(-this.getYRot() * Mth.DEG_TO_RAD) * forward;
-            momentumZ = Mth.cos(this.getYRot() * Mth.DEG_TO_RAD) * forward;
+            forward = visor$rowOars(forward);
         }
+
+        float headingRad = this.getYRot() * Mth.DEG_TO_RAD;
         this.setDeltaMovement(
-                this.getDeltaMovement().x + momentumX,
+                this.getDeltaMovement().x + Mth.sin(-headingRad) * forward,
                 this.getDeltaMovement().y,
-                this.getDeltaMovement().z + momentumZ
+                this.getDeltaMovement().z + Mth.cos(headingRad) * forward
         );
 
         this.setPaddleState(
                 this.inputRight && !this.inputLeft || this.inputUp,
                 this.inputLeft && !this.inputRight || this.inputUp
         );
+    }
+
+    @Unique
+    private float visor$steerTowardsHand() {
+        final float aheadConeDeg = 60.0F;
+        final float behindConeDeg = 150.0F;
+        final float aheadSpeed = 0.06F;
+        final float reverseSpeed = -0.01F;
+        final float pivotSpeed = 0.008F;
+
+        float handYawDeg = ClientContext.localPlayer
+                .getPoseData(PlayerPoseType.TICK)
+                .getHand(HandType.OFFHAND).getYawDegrees();
+        float offHeadingDeg = Math.abs(Mth.wrapDegrees(this.getYRot() - handYawDeg));
+
+        if (offHeadingDeg < aheadConeDeg) {
+            return aheadSpeed;
+        }
+        if (offHeadingDeg > behindConeDeg) {
+            return reverseSpeed;
+        }
+        return pivotSpeed;
+    }
+
+    @Unique
+    private float visor$rowOars(float forward) {
+        final double oarTurnDivisor = 1.5;
+        final float oarForwardGain = 0.06F;
+        // vanilla Boat.controlBoat adds 0.04F for a held forward input
+        final float vanillaForwardSpeed = 0.04F;
+        final float controllerTurnDamping = 0.8F;
+        final float controllerForwardDamping = 0.7F;
+
+        TaskBoat boat = TaskBoat.getInstance();
+        if (!boat.isRowing()) {
+            this.deltaRotation *= controllerTurnDamping;
+            return forward * controllerForwardDamping;
+        }
+
+        this.deltaRotation += (float) ((boat.getOarLeft() - boat.getOarRight()) / oarTurnDivisor);
+        this.inputLeft |= this.deltaRotation < 0;
+        this.inputRight |= this.deltaRotation > 0;
+
+        float rowed = Math.min(vanillaForwardSpeed, oarForwardGain * boat.getMoveForward());
+        this.inputUp |= rowed > 0;
+        return rowed;
     }
 }

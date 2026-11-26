@@ -2,8 +2,7 @@ package org.vmstudio.visor.core.client.input.actions;
 
 import lombok.Getter;
 import me.phoenixra.atumvr.api.input.profile.VRInteractionProfileType;
-import me.phoenixra.atumvr.api.input.profile.types.OculusTouchProfile;
-import me.phoenixra.atumvr.api.input.profile.types.ValveIndexProfile;
+import me.phoenixra.atumvr.api.input.profile.types.*;
 import org.vmstudio.visor.api.client.input.action.ActionBinding;
 import org.vmstudio.visor.api.client.input.action.VRActionSet;
 import org.vmstudio.visor.api.client.input.action.framework.VRActionButton;
@@ -85,7 +84,7 @@ public class ActionLeftMouse extends VRActionButton {
 
     @Override
     public boolean isRequired() {
-        return true;
+        return handType == HandType.MAIN;
     }
 
     @Override
@@ -101,6 +100,31 @@ public class ActionLeftMouse extends VRActionButton {
                     new ActionBinding(
                             OculusTouchProfile.BUTTON_TRIGGER_RIGHT,
                             OculusTouchProfile.BUTTON_TRIGGER_LEFT
+                    ),
+                    VRInteractionProfileType.VIVE,
+                    new ActionBinding(
+                            ViveProfile.BUTTON_TRIGGER_RIGHT,
+                            ViveProfile.BUTTON_TRIGGER_LEFT
+                    ),
+                    VRInteractionProfileType.VIVE_COSMOS,
+                    new ActionBinding(
+                            ViveCosmosProfile.BUTTON_TRIGGER_RIGHT,
+                            ViveCosmosProfile.BUTTON_TRIGGER_LEFT
+                    ),
+                    VRInteractionProfileType.HP_MIXED_REALITY,
+                    new ActionBinding(
+                            HpMixedRealityProfile.BUTTON_TRIGGER_RIGHT,
+                            HpMixedRealityProfile.BUTTON_TRIGGER_LEFT
+                    ),
+                    VRInteractionProfileType.WINDOWS_MOTION,
+                    new ActionBinding(
+                            WindowsMotionProfile.BUTTON_TRIGGER_RIGHT,
+                            WindowsMotionProfile.BUTTON_TRIGGER_LEFT
+                    ),
+                    VRInteractionProfileType.STEAM_FRAME,
+                    new ActionBinding(
+                            SteamFrameProfile.BUTTON_TRIGGER_RIGHT,
+                            SteamFrameProfile.BUTTON_TRIGGER_LEFT
                     )
             );
         } else {
@@ -114,6 +138,31 @@ public class ActionLeftMouse extends VRActionButton {
                     new ActionBinding(
                             OculusTouchProfile.BUTTON_TRIGGER_LEFT,
                             OculusTouchProfile.BUTTON_TRIGGER_RIGHT
+                    ),
+                    VRInteractionProfileType.VIVE,
+                    new ActionBinding(
+                            ViveProfile.BUTTON_TRIGGER_LEFT,
+                            ViveProfile.BUTTON_TRIGGER_RIGHT
+                    ),
+                    VRInteractionProfileType.VIVE_COSMOS,
+                    new ActionBinding(
+                            ViveCosmosProfile.BUTTON_TRIGGER_LEFT,
+                            ViveCosmosProfile.BUTTON_TRIGGER_RIGHT
+                    ),
+                    VRInteractionProfileType.HP_MIXED_REALITY,
+                    new ActionBinding(
+                            HpMixedRealityProfile.BUTTON_TRIGGER_LEFT,
+                            HpMixedRealityProfile.BUTTON_TRIGGER_RIGHT
+                    ),
+                    VRInteractionProfileType.WINDOWS_MOTION,
+                    new ActionBinding(
+                            WindowsMotionProfile.BUTTON_TRIGGER_LEFT,
+                            WindowsMotionProfile.BUTTON_TRIGGER_RIGHT
+                    ),
+                    VRInteractionProfileType.STEAM_FRAME,
+                    new ActionBinding(
+                            SteamFrameProfile.BUTTON_TRIGGER_LEFT,
+                            SteamFrameProfile.BUTTON_TRIGGER_RIGHT
                     )
             );
         }

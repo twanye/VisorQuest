@@ -1,12 +1,14 @@
 package org.vmstudio.visor.core.client;
 
 import com.mojang.blaze3d.platform.InputConstants;
+import org.vmstudio.visor.api.client.input.InputHelper;
 import lombok.Getter;
 import lombok.Setter;
 import net.minecraft.client.gui.screens.*;
 import net.minecraft.client.renderer.entity.EntityRendererProvider;
 import org.vmstudio.visor.api.VisorClientState;
 import org.vmstudio.visor.api.VisorAPI;
+import org.vmstudio.visor.api.ModLoader;
 import org.vmstudio.visor.api.client.VRPlayMode;
 import org.vmstudio.visor.api.client.VRStateMode;
 import org.vmstudio.visor.api.client.events.SessionStateChangedVREvent;
@@ -14,14 +16,16 @@ import org.vmstudio.visor.api.client.render.RenderPhase;
 import org.vmstudio.visor.api.client.render.VRRenderPass;
 import org.vmstudio.visor.api.client.render.VRSceneType;
 
+import org.vmstudio.visor.core.client.gui.screens.VRInactiveScreen;
 import org.vmstudio.visor.core.client.gui.screens.VRPauseMenuScreen;
 import org.vmstudio.visor.core.client.gui.screens.VRErrorReportScreen;
 import org.vmstudio.visor.core.client.render.VRRenderState;
-import org.vmstudio.visor.core.client.settings.VRClientSettings;
+import org.vmstudio.visor.api.client.settings.VRClientSettings;
 import org.vmstudio.visor.api.common.utils.LoggerUtils;
 import org.jetbrains.annotations.NotNull;
-import org.lwjgl.glfw.GLFW;
 import org.vmstudio.visor.core.client.utils.ClientUtils;
+import org.vmstudio.visor.api.compatibility.mcversion.McVersionClientUtils;
+import org.vmstudio.visor.api.compatibility.mcversion.render.McGlState;
 
 import static org.vmstudio.visor.core.client.VisorClientImpl.MC;
 
@@ -35,7 +39,6 @@ public class VisorState implements VisorClientState {
 
     public static long FRAME_COUNT;
 
-
     @Setter
     private static boolean minecraftLoaded = false;
 
@@ -45,6 +48,10 @@ public class VisorState implements VisorClientState {
 
     @Getter @Setter
     private static EntityRendererProvider.Context delayedVrBodyInit = null;
+
+
+    private static int sessionHiddenSinceTick = -1;
+
 
     public static VRStateMode get(){
         return state;
@@ -61,15 +68,17 @@ public class VisorState implements VisorClientState {
         }
 
         //HANDLE DELAYED ERROR IN WORLD
-        if(delayedErrorHandling != null
-                && (MC.screen instanceof DisconnectedScreen
-                || MC.screen instanceof TitleScreen)){
-            delayedErrorHandling.run();
-            delayedErrorHandling = null;
-        }
-        if(MC.level != null){
-            //clean message
-            vrInitFailed = false;
+        if(MC != null){
+            if(delayedErrorHandling != null
+                    && (McVersionClientUtils.screen() instanceof DisconnectedScreen
+                    || McVersionClientUtils.screen() instanceof TitleScreen)){
+                delayedErrorHandling.run();
+                delayedErrorHandling = null;
+            }
+            if(MC.level != null){
+                //clean message
+                vrInitFailed = false;
+            }
         }
 
         //INIT & DESTROY
@@ -93,12 +102,7 @@ public class VisorState implements VisorClientState {
 
 
         var playMode = VRClientSettings.getVrPlayMode();
-        boolean vrActive = playMode.canPlayVR()
-                && (ClientContext.visor.isActive()
-                || playMode == VRPlayMode.ALWAYS_ACTIVE);
-
-
-        boolean changed = updateActive(vrActive);
+        boolean changed = updateActive(playMode.canPlayVR());
         if(changed && !(playMode == VRPlayMode.WORLD_ONLY && state.isActive())){
             ClientUtils.disconnect("VR state changed");
             return;
@@ -110,17 +114,21 @@ public class VisorState implements VisorClientState {
             } else {
                 if (state != VRStateMode.ACTIVE) {
                     if (MC.level != null) {
-                        MC.setScreen(new VRPauseMenuScreen());
+                        McVersionClientUtils.setScreen(new VRPauseMenuScreen());
                     }
                 }
                 setState(VRStateMode.ACTIVE);
             }
+            updateInactiveScreen();
+        } else {
+            ClientContext.visor.idleVRFrame();
         }
 
 
     }
 
     private static void startClient() {
+        checkVRModConflict();
         try {
             if (ClientContext.visor != null) {
                 return;
@@ -147,9 +155,25 @@ public class VisorState implements VisorClientState {
 
     }
 
+    private static void checkVRModConflict() {
+        if(!ModLoader.get().isModLoaded("vivecraft")){
+            return;
+        }
+        throw new IllegalStateException(
+                "Visor detected Vivecraft in the mod list."
+                        + " Two VR mods cannot drive Minecraft at the same time,"
+                        + " so remove either Visor or Vivecraft and launch again."
+        );
+    }
+
     private static void initVR() {
         try {
             VisorClientImpl.LOGGER.info("Initializing VR session...");
+
+            if (!McGlState.isOpenGl()) {
+                throw new IllegalStateException("Visor renders VR with OpenGL and the game runs on another graphics API:"
+                        + " select OpenGL as the graphics API in the video settings and restart the game");
+            }
 
             ClientContext.visor.initializeVR();
             VRRenderState.startVanillaPhase();
@@ -182,26 +206,38 @@ public class VisorState implements VisorClientState {
             MC.getSoundManager().reload();
         }
 
-        MC.resizeDisplay();
-        MC.getWindow().updateVsync(MC.options.enableVsync().get());
+        resizeDisplay();
+        McVersionClientUtils.updateVsync(MC);
         ClientContext.renderer.prepareReinit("Switched state");
         return true;
     }
 
+    private static void resizeDisplay() {
+        try {
+            McVersionClientUtils.resizeDisplay(MC);
+        } catch (Throwable e) {
+            Screen screen = McVersionClientUtils.screen();
+            if (screen == null) {
+                throw e;
+            }
+            VisorClientImpl.LOGGER.error("Closing {}, it failed to re-init on the VR state switch",
+                    screen.getClass().getName(), e);
+            McVersionClientUtils.setScreen(null);
+            McVersionClientUtils.resizeDisplay(MC);
+        }
+    }
 
     private static void activate() {
         setState(VRStateMode.ACTIVE);
+        sessionHiddenSinceTick = -1;
 
         if (MC.player != null) {
             ClientContext.localPlayer.recenterOrigin(
                     MC.player, false
             );
         }
-        // release mouse when switching to standing
-
-        InputConstants.grabOrReleaseMouse(
-                MC.getWindow().getWindow(),
-                GLFW.GLFW_CURSOR_NORMAL,
+        InputHelper.grabOrReleaseMouse(
+                InputHelper.CURSOR_NORMAL,
                 MC.mouseHandler.xpos(),
                 MC.mouseHandler.ypos()
         );
@@ -217,42 +253,62 @@ public class VisorState implements VisorClientState {
                             ? MC.getCameraEntity() : null
             );
         }
-        // grab/release mouse
-        if (MC.screen != null || MC.level == null) {
+        if (McVersionClientUtils.screen() != null || MC.level == null) {
             MC.mouseHandler.releaseMouse();
-            InputConstants.grabOrReleaseMouse(
-                    MC.getWindow().getWindow(),
-                    GLFW.GLFW_CURSOR_NORMAL,
+            InputHelper.grabOrReleaseMouse(
+                    InputHelper.CURSOR_NORMAL,
                     MC.mouseHandler.xpos(),
                     MC.mouseHandler.ypos()
             );
         } else {
             MC.mouseHandler.grabMouse();
-            InputConstants.grabOrReleaseMouse(
-                    MC.getWindow().getWindow(),
-                    GLFW.GLFW_CURSOR_DISABLED,
+            InputHelper.grabOrReleaseMouse(
+                    InputHelper.CURSOR_DISABLED,
                     MC.mouseHandler.xpos(),
                     MC.mouseHandler.ypos()
             );
         }
     }
 
+    private static void updateInactiveScreen() {
+        Screen screen = McVersionClientUtils.screen();
+        if (ClientContext.visor.isSessionVisible()) {
+            sessionHiddenSinceTick = -1;
+            if (screen instanceof VRInactiveScreen inactiveScreen) {
+                inactiveScreen.onClose();
+            }
+            return;
+        }
+        if (sessionHiddenSinceTick < 0) {
+            sessionHiddenSinceTick = TICK_COUNT;
+        }
+        if (TICK_COUNT - sessionHiddenSinceTick < 40 //INACTIVE_SCREEN_DELAY_TICKS
+                || screen instanceof VRInactiveScreen
+                || McVersionClientUtils.isLevelTransitionScreen(screen)) {
+            return;
+        }
+        McVersionClientUtils.setScreen(new VRInactiveScreen(screen));
+    }
+
     public static void destroyVRWithErrorScreen(Throwable throwable) {
         LoggerUtils.printError(throwable);
-
         destroyVR();
-
-        VRClientSettings.setVrPlayMode(VRPlayMode.DISABLED);
+        setVrPlayMode(VRPlayMode.DISABLED);
 
         if(MC.level != null) {
-            MC.level.disconnect();
+            //? if >=1.21.6 {
+            MC.level.disconnect(net.minecraft.network.chat.Component.translatable("multiplayer.status.quitting"));
+            //?} else {
+            /*MC.level.disconnect();
+            *///?}
         }
         delayedErrorHandling = ()-> VRErrorReportScreen.catchError(throwable,true);
     }
+
     private static void initFailed(Throwable throwable){
         destroyVR();
 
-        VRClientSettings.setVrPlayMode(VRPlayMode.DISABLED);
+        setVrPlayMode(VRPlayMode.DISABLED);
         ClientContext.settingsManager.saveOptions();
 
         vrInitFailed = true;
@@ -260,8 +316,6 @@ public class VisorState implements VisorClientState {
     }
 
     public static void destroyVR() {
-
-
         if (ClientContext.visor != null) {
             updateActive(false);
             setState(VRStateMode.OFF);
@@ -273,6 +327,17 @@ public class VisorState implements VisorClientState {
     }
     public static void clearVrInitFailed() {
         vrInitFailed = false;
+    }
+
+    public static void setVrPlayMode(@NotNull VRPlayMode vrPlayMode) {
+        if(vrPlayMode != VRPlayMode.DISABLED) {
+            clearVrInitFailed();
+        }
+        VRClientSettings.setVrPlayMode(vrPlayMode);
+        VisorClientImpl.LOGGER.info(
+                "Changed VR Play Mode to: {}",
+                VRClientSettings.getVrPlayMode()
+        );
     }
 
     @Override

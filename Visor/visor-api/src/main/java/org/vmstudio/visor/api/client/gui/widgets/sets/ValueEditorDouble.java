@@ -1,5 +1,6 @@
 package org.vmstudio.visor.api.client.gui.widgets.sets;
 
+import org.vmstudio.visor.api.compatibility.mcversion.gui.McGuiUtils;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.experimental.Accessors;
@@ -7,7 +8,7 @@ import org.vmstudio.visor.api.client.gui.widgets.EditBoxImaged;
 import org.vmstudio.visor.api.client.gui.widgets.ValueDragWidget;
 import org.vmstudio.visor.api.client.gui.widgets.info.WidgetInfoEditBox;
 import org.vmstudio.visor.api.client.gui.widgets.info.WidgetInfoValueDrag;
-import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.Renderable;
 import net.minecraft.client.gui.components.events.GuiEventListener;
 import net.minecraft.client.gui.narration.NarratableEntry;
@@ -116,7 +117,7 @@ public class ValueEditorDouble implements WidgetSet{
         int intPartWidth = Math.max(intPartWidth(minValue), intPartWidth(maxValue));
         int maxLen = intPartWidth + 1 /* '.' */ + 15 /* decimals */ + (minValue < 0 ? 1 : 0);
         editBox.setMaxLength(Math.max(maxLen, 8));
-        editBox.moveCursorToStart();
+        McGuiUtils.moveCursorToStart(editBox);
 
 
         leftArrow = new ValueDragWidget(leftArrowInfo);
@@ -137,13 +138,13 @@ public class ValueEditorDouble implements WidgetSet{
     }
 
     @Override
-    public void onPreRender(@NotNull GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTicks) {
+    public void onPreRender(@NotNull GuiGraphicsExtractor guiGraphics, int mouseX, int mouseY, float partialTicks) {
 
     }
 
     @Override
     public void onTick() {
-        editBox.tick();
+        McGuiUtils.tickEditBox(editBox);
     }
 
     private static String formatDouble(double v) {

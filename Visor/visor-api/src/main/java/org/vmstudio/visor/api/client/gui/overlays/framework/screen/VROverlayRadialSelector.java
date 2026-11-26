@@ -1,5 +1,6 @@
 package org.vmstudio.visor.api.client.gui.overlays.framework.screen;
 
+import org.vmstudio.visor.api.client.input.HapticFeedback;
 import lombok.Getter;
 import lombok.Setter;
 import org.vmstudio.visor.api.VisorAPI;
@@ -8,7 +9,7 @@ import org.vmstudio.visor.api.client.gui.overlays.framework.VROverlayScreen;
 import org.vmstudio.visor.api.common.HandType;
 import org.vmstudio.visor.api.common.addon.component.ComponentPriority;
 import org.vmstudio.visor.api.common.addon.VisorAddon;
-import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 import org.jetbrains.annotations.NotNull;
 import org.joml.Vector2f;
 
@@ -53,7 +54,7 @@ public abstract class VROverlayRadialSelector extends VROverlayScreen {
         this.disabledBoxes = new ArrayList<>();
     }
 
-    protected abstract void renderRadialImage(GuiGraphics guiGraphics,
+    protected abstract void renderRadialImage(GuiGraphicsExtractor guiGraphics,
                                               float pPartialTicks,
                                               int selectedSlice,
                                               int x,
@@ -62,7 +63,7 @@ public abstract class VROverlayRadialSelector extends VROverlayScreen {
     );
 
     @Override
-    public void onPreRender(GuiGraphics guiGraphics, int pMouseX, int pMouseY, float pPartialTicks) {
+    public void onPreRender(GuiGraphicsExtractor guiGraphics, int pMouseX, int pMouseY, float pPartialTicks) {
         Vector2f cursor = VisorAPI.client().getGuiManager()
                 .getCursorHandler()
                 .findCursorPosition2D(
@@ -106,8 +107,8 @@ public abstract class VROverlayRadialSelector extends VROverlayScreen {
             if (selectedSliceNew != -1
                     && selectedSliceNew != selectedSlice) {
                 VisorAPI.client().getInputManager()
-                        .triggerHapticPulse(usedHand,
-                                0.0005f
+                        .triggerHapticPulseMicroSec(usedHand,
+                                HapticFeedback.UI_SLICE_CHANGE
                         );
                 selectedSlice = selectedSliceNew;
             }
@@ -115,7 +116,7 @@ public abstract class VROverlayRadialSelector extends VROverlayScreen {
     }
 
     @Override
-    public void onRender(GuiGraphics guiGraphics,
+    public void onRender(GuiGraphicsExtractor guiGraphics,
                          int mouseX, int mouseY,
                          float pPartialTicks
     ) {
@@ -132,9 +133,19 @@ public abstract class VROverlayRadialSelector extends VROverlayScreen {
 
 
     private int getSliceFromPos(Vector2f mousePosition) {
+        int x = (int) mousePosition.x;
+        int y = (int) mousePosition.y;
+
+        //helps to prevent flicker between two neighbour slots
+        SelectionBox selected = selectionBoxes.get(selectedSlice);
+        if (selected != null
+                && !disabledBoxes.contains(selectedSlice)
+                && selected.isInBoxSticky(x, y)) {
+            return selectedSlice;
+        }
+
         for (SelectionBox selectionBox : selectionBoxes.values()) {
-            if (selectionBox.isInBox((int) mousePosition.x,
-                    (int) mousePosition.y)) {
+            if (selectionBox.isInBox(x, y)) {
                 if (disabledBoxes.contains(selectionBox.id)) return -1;
                 return selectionBox.getId();
             }
@@ -160,6 +171,10 @@ public abstract class VROverlayRadialSelector extends VROverlayScreen {
 
 
         public abstract boolean isInBox(int x, int y);
+
+        public boolean isInBoxSticky(int x, int y) {
+            return isInBox(x, y);
+        }
 
     }
 

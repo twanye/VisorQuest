@@ -1,13 +1,19 @@
 package org.vmstudio.visor.core.client.render.decoration;
 
+import org.vmstudio.visor.api.compatibility.mcversion.render.McFog;
+import org.vmstudio.visor.api.compatibility.mcversion.render.McGlState;
 import com.mojang.blaze3d.vertex.PoseStack;
+import org.vmstudio.visor.api.compatibility.mcversion.render.McModelViewStack;
+import org.vmstudio.visor.api.compatibility.mcversion.render.McRenderTarget;
+import org.vmstudio.visor.core.client.render.helpers.RenderPoseHelper;
+import org.vmstudio.visor.core.client.render.helpers.RenderStateHelper;
 import lombok.Getter;
 import me.phoenixra.atumvr.api.utils.GLUtils;
 import org.vmstudio.visor.api.ModLoader;
 import org.vmstudio.visor.api.VisorAPI;
-import org.vmstudio.visor.api.client.ClientFeature;
 import org.vmstudio.visor.api.client.events.render.HandRenderStateVREvent;
 import org.vmstudio.visor.api.client.events.render.RenderPipelineStageVREvent;
+import org.vmstudio.visor.api.client.render.RenderPipelineCallback;
 import org.vmstudio.visor.api.client.render.RenderPipelineStage;
 import org.vmstudio.visor.api.client.render.VRRenderPass;
 import org.vmstudio.visor.api.client.render.decoration.VRDecorationRenderer;
@@ -16,7 +22,6 @@ import org.vmstudio.visor.api.client.render.decoration.effects.VRGameEffect;
 import org.vmstudio.visor.api.client.render.decoration.hand.HandRenderState;
 import org.vmstudio.visor.api.common.HandType;
 import org.vmstudio.visor.api.common.addon.component.ComponentRegistry;
-import org.vmstudio.visor.api.server.events.ServerStartedVREvent;
 import org.vmstudio.visor.core.client.render.VRRenderState;
 import org.vmstudio.visor.core.client.render.decoration.hand.VRHandRenderer;
 import org.vmstudio.visor.core.client.render.decoration.registry.DecoratorRegistry;
@@ -25,11 +30,12 @@ import org.vmstudio.visor.core.client.render.decoration.registry.VRGameEffectReg
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import org.vmstudio.visor.compatibility.ShadersHelper;
+import org.vmstudio.visor.compatibility.ShaderCompatHelper;
 import org.vmstudio.visor.core.client.ClientContext;
-import org.vmstudio.visor.core.client.render.helpers.VREffectsHelper;
-import org.vmstudio.visor.core.client.settings.VRClientSettings;
-import org.vmstudio.visor.core.client.settings.options.enums.MirrorMode;
+import org.vmstudio.visor.core.client.render.helpers.RenderEffectsHelper;
+import org.vmstudio.visor.api.client.settings.VRClientSettings;
+import org.vmstudio.visor.api.client.settings.enums.MirrorMode;
+import org.vmstudio.visor.core.client.render.camera.VRCameraOverlaps;
 import org.vmstudio.visor.extensions.client.render.GameRendererExtension;
 
 import java.util.List;
@@ -53,6 +59,9 @@ public class DecorationRendererImpl implements VRDecorationRenderer {
     private HandRenderState handStateMain = HandRenderState.OFF;
     private HandRenderState handStateOffhand = HandRenderState.OFF;
 
+    private boolean handEffectsShaderFix;
+    private boolean worldEffectsShaderFix;
+
     public DecorationRendererImpl(){
         this.registry = new DecoratorRegistry();
         this.vrBodyTypeRegistry = new VRBodyTypeRegistry();
@@ -63,48 +72,98 @@ public class DecorationRendererImpl implements VRDecorationRenderer {
         //REGISTERING RENDERING PIPELINE
         ModLoader.get().addToRenderPipeline(
                 RenderPipelineStage.AFTER_SOLID,
-                (poseStack, partialTicks) -> {
-                    if (VRRenderState.getPhase().isNotVanilla()) {
-                        renderAfterSolid(poseStack, partialTicks);
-                    }
-                    callStageEvent(RenderPipelineStage.AFTER_SOLID, poseStack, partialTicks);
-                    GLUtils.checkGLError("post AFTER_SOLID events stage");
-                }
+                (poseStack, partialTicks) -> runPipelineStage(
+                        RenderPipelineStage.AFTER_SOLID, this::renderAfterSolid, poseStack, partialTicks
+                )
         );
         ModLoader.get().addToRenderPipeline(
                 RenderPipelineStage.AFTER_TRANSLUCENT,
-                (poseStack, partialTicks) -> {
-                    if (VRRenderState.getPhase().isNotVanilla()) {
-                        renderAfterTranslucent(poseStack, partialTicks);
-                    }
-                    callStageEvent(RenderPipelineStage.AFTER_TRANSLUCENT, poseStack, partialTicks);
-                    GLUtils.checkGLError("post AFTER_TRANSLUCENT events stage");
-                }
+                (poseStack, partialTicks) -> runPipelineStage(
+                        RenderPipelineStage.AFTER_TRANSLUCENT, this::renderAfterTranslucent, poseStack, partialTicks
+                )
         );
         ModLoader.get().addToRenderPipeline(
                 RenderPipelineStage.AFTER_WORLD,
-                (poseStack, partialTicks) -> {
-                    if (VRRenderState.getPhase().isNotVanilla()) {
-                        renderAfterWorld(poseStack, partialTicks);
-                    }
-                    callStageEvent(RenderPipelineStage.AFTER_WORLD, poseStack, partialTicks);
-                    GLUtils.checkGLError("post AFTER_WORLD events stage");
-                }
+                (poseStack, partialTicks) -> runPipelineStage(
+                        RenderPipelineStage.AFTER_WORLD, this::renderAfterWorld, poseStack, partialTicks
+                )
         );
+    }
+
+    private void runPipelineStage(RenderPipelineStage stage,
+                                  RenderPipelineCallback visorStage,
+                                  PoseStack poseStack,
+                                  float partialTicks) {
+        if (VRRenderState.getPhase().isVanilla()) {
+            callStageEvent(stage, poseStack, partialTicks);
+            return;
+        }
+        // drain GL errors caused outside VR, probably mods
+        RenderStateHelper.drainExternalGLErrors(stage.name());
+        runLevelStage(() -> {
+            visorStage.render(poseStack, partialTicks);
+            callStageEvent(stage, poseStack, partialTicks);
+            GLUtils.checkGLError("post " + stage.name() + " events stage");
+        });
+    }
+
+    private void runStage(Runnable stage) {
+        //? if >=1.20.5 {
+        if (VRRenderState.getPhase().isVanilla()) {
+            stage.run();
+            return;
+        }
+        //? if >=1.21.9 && <26.1 {
+        /*MC.gameRenderer.getFeatureRenderDispatcher().renderAllFeatures();
+        *///?}
+        //? if <26.2 {
+        /*MC.renderBuffers().bufferSource().endBatch();
+        *///?}
+        McModelViewStack.push();
+        McModelViewStack.identity();
+        McModelViewStack.apply();
+        try {
+            stage.run();
+        } finally {
+            McModelViewStack.pop();
+            McModelViewStack.apply();
+        }
+        //?} else {
+        /*stage.run();
+        *///?}
+    }
+
+    private void runLevelStage(Runnable stage) {
+        if (VRRenderState.getPhase().isVanilla()) {
+            stage.run();
+            return;
+        }
+        runStage(() -> {
+            RenderPoseHelper.setupEyeSpaceLevelLights(VRRenderState.getRenderPass());
+            try {
+                stage.run();
+            } finally {
+                RenderPoseHelper.restoreLevelLights();
+            }
+        });
     }
 
     @Override
     public void renderMainMenu(PoseStack poseStack, float partialTicks) {
         if (currentDecorator == null) return;
 
-        renderAfterSolid(poseStack, partialTicks);
-        callStageEvent(RenderPipelineStage.AFTER_SOLID, poseStack, partialTicks);
+        // drain GL errors caused outside VR, probably mods
+        RenderStateHelper.drainExternalGLErrors("VR main menu");
+        runLevelStage(() -> {
+            renderAfterSolid(poseStack, partialTicks);
+            callStageEvent(RenderPipelineStage.AFTER_SOLID, poseStack, partialTicks);
 
-        renderAfterTranslucent(poseStack, partialTicks);
-        callStageEvent(RenderPipelineStage.AFTER_TRANSLUCENT, poseStack, partialTicks);
+            renderAfterTranslucent(poseStack, partialTicks);
+            callStageEvent(RenderPipelineStage.AFTER_TRANSLUCENT, poseStack, partialTicks);
 
-        renderAfterWorld(poseStack, partialTicks);
-        callStageEvent(RenderPipelineStage.AFTER_WORLD, poseStack, partialTicks);
+            renderAfterWorld(poseStack, partialTicks);
+            callStageEvent(RenderPipelineStage.AFTER_WORLD, poseStack, partialTicks);
+        });
     }
 
     private void callStageEvent(RenderPipelineStage stage,
@@ -226,8 +285,9 @@ public class DecorationRendererImpl implements VRDecorationRenderer {
 
         currentDecorator.setupRendering(poseStack, partialTicks);
 
-        MC.gameRenderer.lightTexture().turnOffLightLayer();
-        if (!ShadersHelper.isShaderActive()) {
+        McGlState.turnOffLightLayer();
+        boolean shaderActive = ShaderCompatHelper.isShaderActive();
+        if (!shaderActive) {
             ClientContext.guiManager.renderDepthOverlays(poseStack, partialTicks);
         }
         //VR BODY
@@ -235,13 +295,11 @@ public class DecorationRendererImpl implements VRDecorationRenderer {
                 .getBodyType()
                 .getRenderer()
                 .renderDecoration(currentDecorator, poseStack, partialTicks);
-        ClientContext.handRenderer.renderHandEffectsOnly(
-                currentDecorator,
-                poseStack,
-                handStateMain, handStateOffhand,
-                false,
-                partialTicks
-        );
+        if (shaderActive) {
+            handEffectsShaderFix = true;
+        } else {
+            renderWorldHandEffects(poseStack, partialTicks);
+        }
         currentDecorator.renderAfterSolid(poseStack, partialTicks);
 
         GLUtils.checkGLError("post AFTER_SOLID stage");
@@ -262,55 +320,63 @@ public class DecorationRendererImpl implements VRDecorationRenderer {
 
     private void renderAfterWorld(PoseStack poseStack, float partialTicks) {
         if (currentDecorator == null) return;
+
+        boolean shaderActive = ShaderCompatHelper.isShaderActive();
+        // a foreign AFTER_LEVEL listener can leave the default framebuffer bound
+        // (RenderTarget.copyDepthFrom does), iris rebinds the eye target itself
+        if (!shaderActive) {
+            McRenderTarget.bindWrite(McRenderTarget.mainTarget());
+        }
+
         if(currentDecorator.isFullControl()){
             currentDecorator.renderAfterWorld(poseStack, partialTicks);
             return;
         }
 
-        // In-block dimming
-        if (MC.level != null) {
-            if (VRRenderState.getRenderPass().isFirstPerson()) {
-                //First person passes
-                float proximity = ((GameRendererExtension) MC.gameRenderer)
-                        .visor$getBlockProximity();
-                if (proximity > 0.0f) {
-                    VREffectsHelper.renderInBlockVignette(proximity);
-                }
-            } else if (((GameRendererExtension) MC.gameRenderer).visor$isInBlock()) {
-                // Third person passes
-                VREffectsHelper.renderInBlockEffect();
-            }
+        if (shaderActive) {
+            worldEffectsShaderFix = true;
+        } else {
+            renderWorldEffects(poseStack, partialTicks);
         }
-
-        renderGameEffects(currentDecorator, poseStack, partialTicks);
-        if (!ShadersHelper.isShaderActive()) {
-            ClientContext.guiManager.renderHudOverlays(poseStack, partialTicks);
-            ClientContext.handRenderer.renderCursor(poseStack, partialTicks);
-            ClientContext.handRenderer.renderGuiHands(
-                    poseStack,
-                    handStateMain, handStateOffhand,
-                    partialTicks
-            );
-            ClientContext.handRenderer.renderHandEffectsOnly(
-                    currentDecorator,
-                    poseStack,
-                    handStateMain, handStateOffhand,
-                    true,
-                    partialTicks
-            );
-        }
-
         currentDecorator.renderAfterWorld(poseStack, partialTicks);
 
         GLUtils.checkGLError("post AFTER_WORLD stage");
     }
 
+    private void renderWorldHandEffects(PoseStack poseStack, float partialTicks) {
+        ClientContext.handRenderer.renderHandEffectsOnly(
+                currentDecorator,
+                poseStack,
+                handStateMain, handStateOffhand,
+                false,
+                partialTicks
+        );
+    }
 
-    public void renderShaderUi(PoseStack poseStack, float partialTicks) {
-        if (currentDecorator == null || currentDecorator.isFullControl()) {
+    private void renderWorldEffects(PoseStack poseStack, float partialTicks) {
+        // In-block dimming
+        if (MC.level != null) {
+            if (VRRenderState.getRenderPass().isFirstPerson()) {
+                //First person passes
+                float proximity = VRCameraOverlaps.getBlockProximity();
+                if (proximity > 0.0f) {
+                    RenderEffectsHelper.renderInBlockVignette(proximity);
+                }
+            } else if (VRCameraOverlaps.isInBlock()) {
+                // Third person passes
+                RenderEffectsHelper.renderInBlockEffect();
+            }
+        }
+
+        renderGameEffects(currentDecorator, poseStack, partialTicks);
+    }
+
+    public void renderAfterPostProcessing(PoseStack poseStack, float partialTicks) {
+        if (currentDecorator == null) return;
+        if (currentDecorator.isFullControl()) {
+            currentDecorator.renderAfterPostProcessing(poseStack, partialTicks);
             return;
         }
-        ClientContext.guiManager.renderDepthOverlays(poseStack, partialTicks);
         ClientContext.guiManager.renderHudOverlays(poseStack, partialTicks);
         ClientContext.handRenderer.renderCursor(poseStack, partialTicks);
         ClientContext.handRenderer.renderGuiHands(
@@ -325,6 +391,35 @@ public class DecorationRendererImpl implements VRDecorationRenderer {
                 true,
                 partialTicks
         );
+
+        currentDecorator.renderAfterPostProcessing(poseStack, partialTicks);
+        GLUtils.checkGLError("post AFTER_POST_PROCESSING stage");
+    }
+
+    public void renderShaderUi(PoseStack poseStack, float partialTicks) {
+        boolean handEffects = handEffectsShaderFix;
+        boolean worldEffects = worldEffectsShaderFix;
+        handEffectsShaderFix = false;
+        worldEffectsShaderFix = false;
+        if (currentDecorator == null || currentDecorator.isFullControl()) {
+            return;
+        }
+        ClientContext.guiManager.renderDepthOverlays(poseStack, partialTicks);
+
+        if (handEffects || worldEffects) {
+            ((GameRendererExtension) MC.gameRenderer).visor$resetProjectionMatrix(partialTicks);
+            McFog.State fog = McFog.save();
+            McFog.disable();
+            runLevelStage(() -> {
+                if (handEffects) {
+                    renderWorldHandEffects(poseStack, partialTicks);
+                }
+                if (worldEffects) {
+                    renderWorldEffects(poseStack, partialTicks);
+                }
+            });
+            McFog.restore(fog);
+        }
         GLUtils.checkGLError("post shader UI stage");
     }
 

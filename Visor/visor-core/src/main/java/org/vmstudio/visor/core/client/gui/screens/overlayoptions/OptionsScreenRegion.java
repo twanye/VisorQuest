@@ -1,7 +1,12 @@
 package org.vmstudio.visor.core.client.gui.screens.overlayoptions;
 
+import com.mojang.blaze3d.platform.InputConstants;
+import org.vmstudio.visor.api.compatibility.mcversion.gui.McGuiUtils;
+import org.vmstudio.visor.api.compatibility.mcversion.render.McGlState;
+import org.vmstudio.visor.api.compatibility.mcversion.render.McShaders;
+import org.vmstudio.visor.api.compatibility.mcversion.render.McVertexBuilder;
+import org.vmstudio.visor.api.compatibility.mcversion.render.McRenderTarget;
 import com.mojang.blaze3d.pipeline.RenderTarget;
-import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.*;
 import me.phoenixra.atumvr.api.misc.color.AtumColor;
 import org.vmstudio.visor.api.client.gui.helpers.GuiHelper;
@@ -13,13 +18,16 @@ import org.vmstudio.visor.api.client.gui.widgets.info.WidgetInfoEditBox;
 import org.vmstudio.visor.api.client.gui.widgets.info.WidgetInfoValueDrag;
 import org.vmstudio.visor.api.client.gui.widgets.sets.ValueEditorInt;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
+//? if >=1.21.6 {
+import net.minecraft.client.renderer.RenderPipelines;
+//?}
 import net.minecraft.client.gui.components.Tooltip;
-import net.minecraft.client.renderer.GameRenderer;
 import net.minecraft.network.chat.Component;
 import net.minecraft.util.Mth;
 import org.jetbrains.annotations.NotNull;
 import org.joml.Matrix4f;
+import com.mojang.renderpearl.api.pipeline.PrimitiveTopology;
 
 public class OptionsScreenRegion extends OptionsScreen<OverlayOptionsScreenRegion> {
     private static final int FIELD_HEIGHT = 15;
@@ -284,7 +292,7 @@ public class OptionsScreenRegion extends OptionsScreen<OverlayOptionsScreenRegio
     }
 
     @Override
-    protected void onRender(GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTick) {
+    protected void onRender(GuiGraphicsExtractor guiGraphics, int mouseX, int mouseY, float partialTick) {
         int editBoxWidth = (cursorBoundsWidth - 30) / 2;
         int startPosX = cursorBoundsX + (cursorBoundsWidth - editBoxWidth) / 2;
 
@@ -337,8 +345,8 @@ public class OptionsScreenRegion extends OptionsScreen<OverlayOptionsScreenRegio
     }
 
     @Override
-    public void render(GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTick) {
-        super.render(guiGraphics, mouseX, mouseY, partialTick);
+    protected void renderContents(GuiGraphicsExtractor guiGraphics, int mouseX, int mouseY, float partialTick) {
+        super.renderContents(guiGraphics, mouseX, mouseY, partialTick);
         computePreviewArea();
         drawFramebufferPreview(guiGraphics);
         drawInteractiveRegionOverlay(guiGraphics);
@@ -384,29 +392,48 @@ public class OptionsScreenRegion extends OptionsScreen<OverlayOptionsScreenRegio
         this.previewScale = scale;
     }
 
-    private void drawFramebufferPreview(GuiGraphics gui) {
+    private void drawFramebufferPreview(GuiGraphicsExtractor gui) {
         RenderTarget target = optionsGroup.getTargetSupplier().get();
-        if (target == null || target.getColorTextureId() <= 0) {
+        if (target == null || McRenderTarget.colorTextureId(target) <= 0) {
             gui.fill(previewX, previewY, previewX + previewW, previewY + previewH, 0xFF202020);
-            gui.renderOutline(previewX, previewY, previewW, previewH, 0x55FFFFFF);
+            McGuiUtils.renderOutline(gui, previewX, previewY, previewW, previewH, 0x55FFFFFF);
             return;
         }
 
-        gui.flush();
+        float uMax = (float) McRenderTarget.viewWidth(target) / (float) target.width;
+        float vMax = (float) McRenderTarget.viewHeight(target) / (float) target.height;
 
-        RenderSystem.setShaderTexture(0, target.getColorTextureId());
+        // the GUI is deferred since 1.21.6, so the preview joins the element list instead of drawing between flushes
+        //? if >=26.1 {
+        gui.blit(target.getColorTextureView(),
+                com.mojang.blaze3d.systems.RenderSystem.getSamplerCache().getClampToEdge(McRenderTarget.isLinearFilter(target)
+                        ? com.mojang.renderpearl.api.textures.FilterMode.LINEAR : com.mojang.renderpearl.api.textures.FilterMode.NEAREST),
+                previewX, previewY, previewX + previewW, previewY + previewH,
+                0.0f, uMax, vMax, 0.0f);
+        //?} elif >=1.21.11 {
+        /*// 1.21.11 moved the filter of the target onto a per-draw sampler
+        gui.submitBlit(RenderPipelines.GUI_TEXTURED, target.getColorTextureView(),
+                com.mojang.blaze3d.systems.RenderSystem.getSamplerCache().getClampToEdge(McRenderTarget.isLinearFilter(target)
+                        ? com.mojang.blaze3d.textures.FilterMode.LINEAR : com.mojang.blaze3d.textures.FilterMode.NEAREST),
+                previewX, previewY, previewX + previewW, previewY + previewH,
+                0.0f, uMax, vMax, 0.0f, 0xFFFFFFFF);
+        *///?} elif >=1.21.6 {
+        /*gui.submitBlit(RenderPipelines.GUI_TEXTURED, target.getColorTextureView(),
+                previewX, previewY, previewX + previewW, previewY + previewH,
+                0.0f, uMax, vMax, 0.0f, 0xFFFFFFFF);
+        *///?} else {
+        /*gui.flush();
 
-        RenderSystem.disableDepthTest();
-        RenderSystem.enableBlend();
-        RenderSystem.defaultBlendFunc();
-        RenderSystem.setShader(GameRenderer::getPositionTexShader);
-        RenderSystem.setShaderColor(1f, 1f, 1f, 1f);
+        McGlState.setShaderTexture(0, target);
 
-        float uMax = (float) target.viewWidth / (float) target.width;
-        float vMax = (float) target.viewHeight / (float) target.height;
+        McGlState.disableDepthTest();
+        McGlState.enableBlend();
+        McGlState.defaultBlendFunc();
+        McShaders.use(McShaders.Core.POSITION_TEX);
+        McGlState.setShaderColor(1f, 1f, 1f, 1f);
 
         Matrix4f pose = gui.pose().last().pose();
-        BufferBuilder buf = Tesselator.getInstance().getBuilder();
+        McVertexBuilder buf = McVertexBuilder.get();
         buf.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_TEX);
         // bottom-left
         buf.vertex(pose, previewX, previewY + previewH, 0).uv(0.0f, 0.0f).endVertex();
@@ -416,15 +443,16 @@ public class OptionsScreenRegion extends OptionsScreen<OverlayOptionsScreenRegio
         buf.vertex(pose, previewX + previewW, previewY, 0).uv(uMax, vMax).endVertex();
         // top-left
         buf.vertex(pose, previewX, previewY, 0).uv(0.0f, vMax).endVertex();
-        BufferUploader.drawWithShader(buf.end());
+        buf.draw();
 
-        RenderSystem.disableBlend();
-        RenderSystem.enableDepthTest();
+        McGlState.disableBlend();
+        McGlState.enableDepthTest();
+        *///?}
 
-        gui.renderOutline(previewX, previewY, previewW, previewH, 0x80FFFFFF);
+        McGuiUtils.renderOutline(gui, previewX, previewY, previewW, previewH, 0x80FFFFFF);
     }
 
-    private void drawInteractiveRegionOverlay(GuiGraphics gui) {
+    private void drawInteractiveRegionOverlay(GuiGraphicsExtractor gui) {
         // Map region rect to preview coordinates
         int rx = previewX + (int) Math.round(optionsGroup.getRegionX() * previewScale);
         int ry = previewY + (int) Math.round(optionsGroup.getRegionY() * previewScale);
@@ -462,7 +490,7 @@ public class OptionsScreenRegion extends OptionsScreen<OverlayOptionsScreenRegio
         drawKnob(gui, rx + rw, ry + rh);       // bottom-right
     }
 
-    private void drawKnob(GuiGraphics gui, int cx, int cy) {
+    private void drawKnob(GuiGraphicsExtractor gui, int cx, int cy) {
         int x1 = cx - KNOB_HALF;
         int y1 = cy - KNOB_HALF;
         int x2 = x1 + KNOB_SIZE;
@@ -569,9 +597,9 @@ public class OptionsScreenRegion extends OptionsScreen<OverlayOptionsScreenRegio
     }
 
     @Override
-    public boolean mouseClicked(double mouseX, double mouseY, int button) {
-        boolean base = super.mouseClicked(mouseX, mouseY, button);
-        if (button != 0) return base;
+    protected boolean onMouseClicked(double mouseX, double mouseY, int button) {
+        boolean base = super.onMouseClicked(mouseX, mouseY, button);
+        if (button != InputConstants.MOUSE_BUTTON_LEFT) return base;
 
         if (!inPreview((int) mouseX, (int) mouseY)) {
             return base;
@@ -593,12 +621,12 @@ public class OptionsScreenRegion extends OptionsScreen<OverlayOptionsScreenRegio
     }
 
     @Override
-    public boolean mouseDragged(double mouseX, double mouseY, int button, double dragDX, double dragDY) {
+    protected boolean onMouseDragged(double mouseX, double mouseY, int button, double dragDX, double dragDY) {
         if (activeHandle == DragHandle.NONE) {
-            return super.mouseDragged(mouseX, mouseY, button, dragDX, dragDY);
+            return super.onMouseDragged(mouseX, mouseY, button, dragDX, dragDY);
         }
-        if (button != 0) {
-            return super.mouseDragged(mouseX, mouseY, button, dragDX, dragDY);
+        if (button != InputConstants.MOUSE_BUTTON_LEFT) {
+            return super.onMouseDragged(mouseX, mouseY, button, dragDX, dragDY);
         }
 
         int dxPx = (int) Math.round((mouseX - dragStartMouseX) / Math.max(0.00001, previewScale));
@@ -676,9 +704,9 @@ public class OptionsScreenRegion extends OptionsScreen<OverlayOptionsScreenRegio
     }
 
     @Override
-    public boolean mouseReleased(double mouseX, double mouseY, int button) {
-        boolean base = super.mouseReleased(mouseX, mouseY, button);
-        if (button == 0) {
+    protected boolean onMouseReleased(double mouseX, double mouseY, int button) {
+        boolean base = super.onMouseReleased(mouseX, mouseY, button);
+        if (button == InputConstants.MOUSE_BUTTON_LEFT) {
             activeHandle = DragHandle.NONE;
         }
         return base;

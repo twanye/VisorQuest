@@ -6,15 +6,17 @@ import org.vmstudio.visor.api.client.tasks.RegisterVisorTask;
 import org.vmstudio.visor.api.client.tasks.TaskType;
 import org.vmstudio.visor.api.client.tasks.VisorTask;
 import org.vmstudio.visor.api.common.addon.VisorAddon;
+import org.vmstudio.visor.api.common.addon.component.ComponentPriority;
 import org.vmstudio.visor.api.common.network.toserver.vrstate.CrawlingPayloadToServer;
 import org.vmstudio.visor.api.server.VRServerSettings;
 import org.vmstudio.visor.core.client.ClientContext;
 import org.vmstudio.visor.core.client.network.ClientNetworking;
-import org.vmstudio.visor.core.client.settings.VRClientSettings;
+import org.vmstudio.visor.api.client.settings.VRClientSettings;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.world.entity.Pose;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.vmstudio.visor.core.client.utils.RoomTasksUtils;
 
 @RegisterVisorTask
 public class TaskRoomCrawl extends VisorTask {
@@ -23,11 +25,10 @@ public class TaskRoomCrawl extends VisorTask {
     @Getter
     private static TaskRoomCrawl instance;
 
+    private static final float EXIT_MARGIN = 0.03f;
 
     @Getter
     private boolean crawling;
-    @Getter
-    private boolean swimPose;
 
     public TaskRoomCrawl(@NotNull VisorAddon owner) {
         super(owner);
@@ -39,13 +40,12 @@ public class TaskRoomCrawl extends VisorTask {
         double fullHeight = ClientContext.localPlayer.getFullHeight();
         double actualHeight = ClientContext.localPlayer.getActualHeight();
 
-        final boolean isCrawling = (actualHeight / fullHeight) <= VRClientSettings.getRoomCrawlThreshold();
-        applyState(player, isCrawling);
+        float threshold = VRClientSettings.getRoomCrawlThreshold() + (this.crawling ? EXIT_MARGIN : 0.0f);
+        applyState(player, (actualHeight / fullHeight) <= threshold);
     }
 
     @Override
     public void onClear(LocalPlayer player) {
-        this.swimPose = false;
         applyState(player, false);
     }
 
@@ -58,10 +58,13 @@ public class TaskRoomCrawl extends VisorTask {
         if(!VRServerSettings.isRoomCrawlingSupported()) return false;
         return isEnabled()
                 && player != null
-                && player.isAlive()
-                && !player.isSleeping()
-                && !player.isSpectator()
-                && !player.isPassenger();
+                && RoomTasksUtils.canSneakOrCrawl(player);
+    }
+
+
+    @Override
+    public @NotNull ComponentPriority getPriority() {
+        return ComponentPriority.HIGH; // before TaskRoomSneak
     }
 
 
@@ -69,13 +72,9 @@ public class TaskRoomCrawl extends VisorTask {
         if (this.crawling != newCrawling) {
             if (newCrawling) {
                 player.setPose(Pose.SWIMMING);
-                this.swimPose = true;
             }
             this.crawling = newCrawling;
             ClientNetworking.sendVRPacket(new CrawlingPayloadToServer(this.crawling));
-        }
-        if (!this.crawling && player.getPose() != Pose.SWIMMING) {
-            this.swimPose = false;
         }
     }
 

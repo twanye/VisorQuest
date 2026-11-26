@@ -1,142 +1,101 @@
+// #!MC-VERSION:: 26.3+
 package org.vmstudio.visor.mixin.client.renderer.entity.player.layers;
 
+import org.vmstudio.visor.api.compatibility.mcversion.render.McRenderUtils;
 import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
 import com.llamalad7.mixinextras.sugar.Local;
-import com.llamalad7.mixinextras.sugar.Share;
-import com.llamalad7.mixinextras.sugar.ref.LocalFloatRef;
 import com.mojang.blaze3d.vertex.PoseStack;
-import net.minecraft.client.model.PlayerModel;
+import net.minecraft.client.model.Model;
+import net.minecraft.client.model.player.PlayerModel;
 import net.minecraft.client.player.AbstractClientPlayer;
+import net.minecraft.client.renderer.rendertype.RenderType;
+import net.minecraft.client.renderer.SubmitNodeCollector;
 import net.minecraft.client.renderer.entity.RenderLayerParent;
 import net.minecraft.client.renderer.entity.layers.CapeLayer;
 import net.minecraft.client.renderer.entity.layers.RenderLayer;
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.EquipmentSlot;
-import org.joml.Matrix3f;
 import org.joml.Vector3f;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
-import org.spongepowered.asm.mixin.injection.ModifyArg;
-import org.spongepowered.asm.mixin.injection.ModifyVariable;
-import org.vmstudio.visor.api.common.utils.VRMathUtils;
 import org.vmstudio.visor.core.client.player.VRClientPlayers;
-import org.vmstudio.visor.core.client.utils.ModelUtils;
+import org.vmstudio.visor.core.client.render.player.BackLayerPlacement;
+import com.mojang.math.Axis;
+import net.minecraft.client.model.HumanoidModel;
+import net.minecraft.client.renderer.entity.state.AvatarRenderState;
+import org.vmstudio.visor.api.client.player.VRClientPlayer;
+import org.vmstudio.visor.core.client.render.player.VRPlayerRenderState;
 
 @Mixin(CapeLayer.class)
-public abstract class CapeLayerMixin extends RenderLayer<AbstractClientPlayer, PlayerModel<AbstractClientPlayer>> {
+public abstract class CapeLayerMixin extends RenderLayer<AvatarRenderState, PlayerModel> {
 
     @Unique
-    private final Vector3f visor$tempV = new Vector3f();
+    private static final float ARMOR_CLEARANCE_Y = -0.85F;
+    @Unique
+    private static final float ARMOR_CLEARANCE_Z = 1.1F;
+    @Unique
+    private final BackLayerPlacement visor$placement = new BackLayerPlacement();
 
     @Unique
-    private final Matrix3f visor$bodyRot = new Matrix3f();
+    private final Vector3f visor$offset = new Vector3f();
 
-    public CapeLayerMixin(RenderLayerParent<AbstractClientPlayer, PlayerModel<AbstractClientPlayer>> renderer) {
+    public CapeLayerMixin(RenderLayerParent<AvatarRenderState, PlayerModel> renderer) {
         super(renderer);
     }
 
-    // DEBUG CAPE
-    /*
-    @WrapOperation(method = "render(Lcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/client/renderer/MultiBufferSource;ILnet/minecraft/client/player/AbstractClientPlayer;FFFFFF)V", at = @At(value = "INVOKE", target = "Lnet/minecraft/client/resources/PlayerSkin;capeTexture()Lnet/minecraft/resources/ResourceLocation;"))
-    private ResourceLocation visor$whiteCape(PlayerSkin skin, Operation<ResourceLocation> original) {
-        ResourceLocation capeTexture = original.call(skin);
-        if (capeTexture == null) {
-            capeTexture = RenderHelper.WHITE_TEXTURE;
-        }
-        return capeTexture;
-    }
-    */
-
-    @WrapOperation(method = "render(Lcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/client/renderer/MultiBufferSource;ILnet/minecraft/client/player/AbstractClientPlayer;FFFFFF)V", at = @At(value = "INVOKE", target = "Lcom/mojang/blaze3d/vertex/PoseStack;translate(FFF)V"))
-    private void visor$modifyOffset(
-        PoseStack poseStack, float x, float y, float z, Operation<Void> original,
-        @Local(argsOnly = true) AbstractClientPlayer player, @Local(argsOnly = true, ordinal = 2) float partialTick,
-        @Share("xRot") LocalFloatRef xRotation, @Share("yRot") LocalFloatRef yRotation)
-    {
-        // don't care about interpolation here, only needs the scales which aren't interpolated
-        var vrPlayer = VRClientPlayers.getPlayer(player.getUUID());
-        // only do this if it's a vr player
-        if (vrPlayer != null) {
-            this.visor$bodyRot.rotationZYX(getParentModel().body.zRot, -getParentModel().body.yRot,
-                -getParentModel().body.xRot);
-
-            // attach the cape to the body
-            this.visor$bodyRot.transform(VRMathUtils.UP_VECTOR, this.visor$tempV);
-            xRotation.set((float) Math.atan2(this.visor$tempV.y, this.visor$tempV.z) - Mth.HALF_PI);
-
-            // make sure it doesn't go below -PI
-            xRotation.set(xRotation.get() < -Mth.PI ? xRotation.get() + Mth.TWO_PI : xRotation.get());
-
-            this.visor$bodyRot.transform(VRMathUtils.LEFT_VECTOR, this.visor$tempV);
-            yRotation.set((float) -Math.atan2(this.visor$tempV.x, this.visor$tempV.y) + Mth.HALF_PI);
-
-            // transform offset to be body relative
-            this.visor$tempV.set(0F, 0F, 2F - 0.5F * (getParentModel().body.xRot / Mth.HALF_PI));
-            if (!player.getItemBySlot(EquipmentSlot.CHEST).isEmpty()) {
-                // vanilla cape offset with armor
-                this.visor$tempV.add(0F, -0.85F, 1.1F);
-            }
-            this.visor$tempV.rotateX(xRotation.get());
-            this.visor$tempV.rotateZ(yRotation.get());
-
-            // +24 because it should be the offset to the default position, which is at 24
-            this.visor$tempV.add(getParentModel().body.x, getParentModel().body.y + 24F, getParentModel().body.z);
-
-            // no yaw, since we  need the vector to be player rotated anyway
-            ModelUtils.modelToWorld(player, this.visor$tempV, vrPlayer, 0F, false, false, this.visor$tempV);
-            original.call(poseStack, this.visor$tempV.x, -this.visor$tempV.y, -this.visor$tempV.z);
-        } else {
+    @WrapOperation(method = "submit(Lcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/client/renderer/SubmitNodeCollector;ILnet/minecraft/client/renderer/entity/state/AvatarRenderState;FF)V", at = @At(value = "INVOKE", target = "Lcom/mojang/blaze3d/vertex/PoseStack;translate(FFF)V"))
+    private void visor$noArmorShift(PoseStack poseStack, float x, float y, float z, Operation<Void> original,
+                                    @Local(argsOnly = true) AvatarRenderState state) {
+        if (visor$vrPlayer(state) == null) {
             original.call(poseStack, x, y, z);
         }
     }
 
-    @ModifyVariable(method = "render(Lcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/client/renderer/MultiBufferSource;ILnet/minecraft/client/player/AbstractClientPlayer;FFFFFF)V", at = @At(value = "INVOKE", target = "Lnet/minecraft/client/player/AbstractClientPlayer;isCrouching()Z"), ordinal = 7)
-    private float visor$modifyXRot(
-        float xRot, @Local(argsOnly = true) AbstractClientPlayer player,
-        @Local(ordinal = 2, argsOnly = true) float partialTick, @Share("xRot") LocalFloatRef xRotation)
+    @WrapOperation(method = "submit(Lcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/client/renderer/SubmitNodeCollector;ILnet/minecraft/client/renderer/entity/state/AvatarRenderState;FF)V", at = @At(value = "INVOKE", target = "Lnet/minecraft/client/renderer/SubmitNodeCollector;submitModel(Lnet/minecraft/client/model/Model;Ljava/lang/Object;Lcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/client/renderer/rendertype/RenderType;III)V"))
+    private void visor$capeAnchor(
+        SubmitNodeCollector collector, Model model, Object renderState, PoseStack poseStack, RenderType renderType,
+        int packedLight, int packedOverlay, int tint,
+        Operation<Void> original, @Local(argsOnly = true) AvatarRenderState state)
     {
-        if (VRClientPlayers.isTracked(player)) {
-            // rotate the cape with the body
-            // cancel out crouch
-            if (player.isCrouching()) {
-                xRot -= 25F;
-            }
-            // rotate with body
-            // max of 0 to keep it down when the body bends backwards
-            float min = (player.isFallFlying() ? 1F : player.getSwimAmount(partialTick)) * -Mth.HALF_PI;
-            xRot += Mth.RAD_TO_DEG * Math.max(min, xRotation.get());
+        HumanoidModel<?> capeModel = (HumanoidModel<?>) model;
+        AbstractClientPlayer player = VRPlayerRenderState.playerOf(state);
+        VRClientPlayer vrPlayer = player == null ? null : VRClientPlayers.getPlayer(player.getUUID());
+        if (vrPlayer == null || !capeModel.body.hasChild("cape")) {
+            original.call(collector, model, renderState, poseStack, renderType,
+                    packedLight, packedOverlay, tint);
+            return;
         }
-        return xRot;
+
+        PlayerModel parentModel = getParentModel();
+        visor$placement.aim(parentModel.body, true);
+        float bodyPitch = visor$placement.pitch();
+        // read the slot, not the render state: 1.21.4 renamed its chestItem field to chestEquipment
+        boolean armor = !player.getItemBySlot(EquipmentSlot.CHEST).isEmpty();
+
+        visor$offset.set(0F, 0F, BackLayerPlacement.restingDepth(parentModel.body));
+        if (armor) {
+            visor$offset.add(0F, ARMOR_CLEARANCE_Y, ARMOR_CLEARANCE_Z);
+        }
+        visor$placement.place(vrPlayer, parentModel.body, visor$offset, visor$offset);
+        poseStack.translate(visor$offset.x, -visor$offset.y, -visor$offset.z);
+
+        float flatten = state.isFallFlying ? 1F : state.swimAmount;
+        float capePitch = state.capeFlap + Math.max(bodyPitch, -Mth.HALF_PI * flatten) * Mth.RAD_TO_DEG;
+        float leanFraction = bodyPitch / Mth.HALF_PI;
+        float walkLift = leanFraction < 0F ? 0F : state.capeLean * (1F - Math.min(leanFraction, 1F));
+        McRenderUtils.rotate(poseStack, Axis.XP.rotationDegrees(6.0F + walkLift / 2.0F + capePitch));
+        McRenderUtils.rotate(poseStack, Axis.ZP.rotationDegrees(state.capeLean2 / 2.0F));
+        McRenderUtils.rotate(poseStack, Axis.YP.rotationDegrees(180.0F - state.capeLean2 / 2.0F + Mth.RAD_TO_DEG * visor$placement.yaw()));
+
+        original.call(collector, model, renderState, poseStack, renderType,
+                packedLight, packedOverlay, tint);
     }
 
-    @ModifyVariable(method = "render(Lcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/client/renderer/MultiBufferSource;ILnet/minecraft/client/player/AbstractClientPlayer;FFFFFF)V", at = @At(value = "INVOKE", target = "Lnet/minecraft/client/player/AbstractClientPlayer;isCrouching()Z"), ordinal = 8)
-    private float visor$limitSpeedRot(
-        float speedRot, @Local(argsOnly = true) AbstractClientPlayer player,
-        @Share("xRot") LocalFloatRef xRotation)
-    {
-        if (VRClientPlayers.isTracked(player)) {
-            // limit the up rotation when walking forward, depending on body rotation
-            float rot = xRotation.get() / Mth.HALF_PI;
-            if (rot >= 0) {
-                return speedRot * (1F - Mth.clamp(rot, 0F, 1F));
-            } else {
-                return 0F;
-            }
-        }
-        return speedRot;
-    }
-
-    @ModifyArg(method = "render(Lcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/client/renderer/MultiBufferSource;ILnet/minecraft/client/player/AbstractClientPlayer;FFFFFF)V", at = @At(value = "INVOKE", target = "Lcom/mojang/math/Axis;rotationDegrees(F)Lorg/joml/Quaternionf;", ordinal = 2))
-    private float visor$modifyYRotation(
-        float yRot, @Local(argsOnly = true) AbstractClientPlayer player,
-        @Share("yRot") LocalFloatRef yRotation)
-    {
-        if (VRClientPlayers.isTracked(player)) {
-            // rotate the cape with side body rotation
-            yRot += Mth.RAD_TO_DEG * yRotation.get();
-        }
-        return yRot;
+    @Unique
+    private static VRClientPlayer visor$vrPlayer(AvatarRenderState state) {
+        AbstractClientPlayer player = VRPlayerRenderState.playerOf(state);
+        return player == null ? null : VRClientPlayers.getPlayer(player.getUUID());
     }
 }

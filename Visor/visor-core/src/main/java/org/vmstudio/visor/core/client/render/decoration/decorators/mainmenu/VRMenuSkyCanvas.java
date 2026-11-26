@@ -1,17 +1,17 @@
 package org.vmstudio.visor.core.client.render.decoration.decorators.mainmenu;
 
-import com.mojang.blaze3d.systems.RenderSystem;
-import com.mojang.blaze3d.vertex.BufferBuilder;
-import com.mojang.blaze3d.vertex.BufferUploader;
+import org.vmstudio.visor.api.compatibility.mcversion.render.McGlState;
+import org.vmstudio.visor.api.compatibility.mcversion.render.McShaders;
+import org.vmstudio.visor.api.compatibility.mcversion.render.McVertexBuilder;
+import org.vmstudio.visor.api.compatibility.mcversion.McVersionClientUtils;
 import com.mojang.blaze3d.vertex.DefaultVertexFormat;
 import com.mojang.blaze3d.vertex.PoseStack;
-import com.mojang.blaze3d.vertex.Tesselator;
-import com.mojang.blaze3d.vertex.VertexFormat;
+import com.mojang.renderpearl.api.vertex.VertexFormat;
+import com.mojang.renderpearl.api.pipeline.PrimitiveTopology;
 import com.mojang.math.Axis;
 import me.phoenixra.atumvr.api.misc.color.AtumColor;
 import me.phoenixra.atumvr.api.misc.color.AtumColorImmutable;
-import net.minecraft.Util;
-import net.minecraft.client.renderer.GameRenderer;
+import net.minecraft.util.Util;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.joml.Matrix4f;
@@ -38,12 +38,12 @@ import org.vmstudio.visor.core.client.ClientContext;
 import org.vmstudio.visor.core.client.input.actions.ActionLeftMouse;
 import org.vmstudio.visor.core.client.render.helpers.RenderHelper;
 import org.vmstudio.visor.core.client.render.helpers.RenderPoseHelper;
-import org.vmstudio.visor.core.client.settings.VRClientSettings;
-import org.vmstudio.visor.core.client.settings.options.enums.MainMenuSceneMode;
+import org.vmstudio.visor.api.client.settings.VRClientSettings;
+import org.vmstudio.visor.api.client.settings.enums.MainMenuSceneMode;
 
 import static org.vmstudio.visor.core.client.VisorClientImpl.MC;
 
-//@TODO IT IS PROTOTYPE! REWORK FROM SCRATCH
+//@TODO IT IS PROTOTYPE! REWORK FROM SCRATCH AFTER 0.7.0
 public final class VRMenuSkyCanvas implements VREventListener {
 
     private static VRMenuSkyCanvas INSTANCE;
@@ -236,21 +236,20 @@ public final class VRMenuSkyCanvas implements VREventListener {
         Matrix4f poseMatrix = poseStack.last().pose();
 
         // --- GL setup ---
-        RenderSystem.enableDepthTest();
-        RenderSystem.depthFunc(GL11C.GL_ALWAYS);
-        RenderSystem.depthMask(false);
-        RenderSystem.enableBlend();
-        RenderSystem.defaultBlendFunc();
-        RenderSystem.disableCull();
-        RenderSystem.setShader(GameRenderer::getPositionColorShader);
-        RenderSystem.setShaderColor(1, 1, 1, 1);
-        if (MC.getOverlay() == null) {
+        McGlState.enableDepthTest();
+        McGlState.depthFunc(GL11C.GL_ALWAYS);
+        McGlState.depthMask(false);
+        McGlState.enableBlend();
+        McGlState.defaultBlendFunc();
+        McGlState.disableCull();
+        McShaders.use(McShaders.Core.POSITION_COLOR);
+        McGlState.setShaderColor(1, 1, 1, 1);
+        if (McVersionClientUtils.overlay() == null) {
             var whiteTex = TexturesHelper.getWhiteTexture();
-            MC.getTextureManager().bindForSetup(whiteTex);
-            RenderSystem.setShaderTexture(0, whiteTex);
+            McGlState.setShaderTexture(0, whiteTex);
         }
 
-        BufferBuilder builder = Tesselator.getInstance().getBuilder();
+        McVertexBuilder builder = McVertexBuilder.get();
         float dashSpan = aim.distance - CURSOR_DASH_START;
         for (int i = 0; i < CURSOR_DASH_COUNT; i++) {
             float nearFrac = i / (float) CURSOR_DASH_COUNT;
@@ -270,14 +269,14 @@ public final class VRMenuSkyCanvas implements VREventListener {
         // eraser ring marker
         var glowSprite = VRMenuSky.glowSprite();
         if (erase && glowSprite != null) {
-            RenderSystem.setShader(GameRenderer::getPositionTexColorShader);
-            RenderSystem.setShaderTexture(0, glowSprite);
+            McShaders.use(McShaders.Core.POSITION_TEX_COLOR);
+            McGlState.setShaderTexture(0, glowSprite);
 
             int[] colorInt = color.asIntArray(false);
 
             float hitDistance = aim.distance;
             float seconds = (float) ((Util.getMillis() % 100_000L) / 1000.0);
-            builder.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR);
+            builder.begin(PrimitiveTopology.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR);
             float ringRadius = hitDistance * ERASE_RING_SIN;
             float spinAngle = seconds * ERASE_RING_SPIN;
             for (int i = 0; i < ERASE_RING_DOTS; i++) {
@@ -288,18 +287,18 @@ public final class VRMenuSkyCanvas implements VREventListener {
             }
             markerQuad(builder, poseMatrix, 0, 0, -hitDistance, 0.35f, colorInt, 120);
 
-            BufferUploader.drawWithShader(builder.end());
+            builder.draw();
         }
 
         // --- restore GL ---
-        RenderSystem.enableCull();
-        RenderSystem.depthFunc(GL11C.GL_LEQUAL);
-        RenderSystem.depthMask(true);
-        RenderSystem.setShaderColor(1, 1, 1, 1);
+        McGlState.enableCull();
+        McGlState.depthFunc(GL11C.GL_LEQUAL);
+        McGlState.depthMask(true);
+        McGlState.setShaderColor(1, 1, 1, 1);
         poseStack.popPose();
     }
 
-    private static void markerQuad(BufferBuilder builder, Matrix4f poseMatrix, float cx, float cy, float z,
+    private static void markerQuad(McVertexBuilder builder, Matrix4f poseMatrix, float cx, float cy, float z,
                                    float halfSize, int[] color, int a) {
         builder.vertex(poseMatrix, cx - halfSize, cy - halfSize, z).uv(0f, 0f).color(color[0], color[1], color[2], a).endVertex();
         builder.vertex(poseMatrix, cx + halfSize, cy - halfSize, z).uv(1f, 0f).color(color[0], color[1], color[2], a).endVertex();

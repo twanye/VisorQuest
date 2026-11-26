@@ -1,5 +1,6 @@
 package org.vmstudio.visor.core.client.gui.overlays.builtin;
 
+import com.mojang.blaze3d.platform.InputConstants;
 import com.mojang.blaze3d.platform.Window;
 import org.vmstudio.visor.api.VisorAPI;
 import org.vmstudio.visor.api.client.input.MouseButtonType;
@@ -9,9 +10,11 @@ import org.vmstudio.visor.api.client.gui.VROverlayManager;
 import org.vmstudio.visor.api.client.gui.overlays.VROverlayCursorData;
 import org.vmstudio.visor.api.client.gui.overlays.VROverlayHelper;
 import org.vmstudio.visor.api.client.gui.overlays.framework.VROverlayFrameBuffer;
+import org.vmstudio.visor.api.client.gui.overlays.framework.VROverlayScreen;
 import org.vmstudio.visor.api.client.input.InputHelper;
 import org.vmstudio.visor.api.common.addon.component.ComponentPriority;
 import org.vmstudio.visor.api.common.addon.VisorAddon;
+import org.vmstudio.visor.api.compatibility.mcversion.McVersionClientUtils;
 import org.vmstudio.visor.core.client.ClientContext;
 import org.vmstudio.visor.extensions.client.WindowExtension;
 import org.vmstudio.visor.core.client.utils.ClientUtils;
@@ -31,6 +34,9 @@ import static org.vmstudio.visor.core.client.VisorClientImpl.MC;
 
 public class VROverlayGameScreen extends VROverlayFrameBuffer {
     public static final String ID = "game_screen";
+
+    private static final float WIN_SCREEN_SCALE = 2.0f;
+    private static final float WIN_SCREEN_DISTANCE = 2.5f;
 
     private Vector3fc relativePosition = null;
     private Matrix4f relativeRotation = null;
@@ -64,7 +70,7 @@ public class VROverlayGameScreen extends VROverlayFrameBuffer {
 
     @Override
     protected boolean updateVisibility() {
-        return MC.screen != null;
+        return McVersionClientUtils.screen() != null;
     }
 
 
@@ -107,6 +113,15 @@ public class VROverlayGameScreen extends VROverlayFrameBuffer {
                     || keyboardAccessor.getAttachedTo() != null){
                 keyboardAccessor.showKeyboard( newScreen);
             }
+        } else {
+            Screen attachedTo = keyboardAccessor.getAttachedTo();
+            if (keyboardAccessor.isVisible()
+                    && attachedTo != null
+                    && !(attachedTo instanceof VROverlayScreen)
+                    && attachedTo != newScreen) {
+                //swap keyboard attachment to make sure its valid
+                keyboardAccessor.showKeyboard(newScreen);
+            }
         }
 
         orient(previousGuiScreen,newScreen);
@@ -117,6 +132,10 @@ public class VROverlayGameScreen extends VROverlayFrameBuffer {
                         Screen newScreen){
         if (VisorAPI.clientState().sceneType().isMainMenu()) {
             orientMainMenu();
+            return;
+        }
+        if (newScreen instanceof WinScreen) {
+            orientWinScreen();
             return;
         }
         overlayScale = optionsResizing.getResizingScale();
@@ -142,14 +161,14 @@ public class VROverlayGameScreen extends VROverlayFrameBuffer {
             }
 
             var hmdPos = hmd.getPosition();
-            var offset = hmd.getCustomVector(forwardVec);
+            var offset = hmd.transformDirection(forwardVec);
             relativePosition = new Vector3f(
                     offset.x / 2.0f + hmdPos.x(),
                     offset.y / 2.0f + hmdPos.y(),
                     offset.z / 2.0f + hmdPos.z()
             );
 
-            // orient screen
+
             Vector3f look = new Vector3f(
                     relativePosition.x() - hmdPos.x(),
                     relativePosition.y() - hmdPos.y(),
@@ -164,6 +183,32 @@ public class VROverlayGameScreen extends VROverlayFrameBuffer {
 
         }
 
+    }
+
+    private void orientWinScreen(){
+        ClientContext.localPlayer.setRotationY(0);
+        overlayScale = WIN_SCREEN_SCALE;
+
+        VRPose hmd = ClientContext.localPlayer
+                .getPoseData(PlayerPoseType.ROOM)
+                .getHmd();
+        var hmdPos = hmd.getPosition();
+
+        Vector3f forward = hmd.transformDirection(new Vector3f(0.0f, 0.0f, -1.0f));
+        forward.y = 0.0f;
+        if (forward.lengthSquared() < 1.0e-4f) {
+            forward.set(0.0f, 0.0f, -1.0f);
+        }
+        forward.normalize().mul(WIN_SCREEN_DISTANCE);
+
+        relativePosition = new Vector3f(
+                hmdPos.x() + forward.x,
+                hmdPos.y(),
+                hmdPos.z() + forward.z
+        );
+        relativeRotation = new Matrix4f().rotationY(
+                (float) (Math.PI + Mth.atan2(forward.x, forward.z))
+        );
     }
 
     private void orientMainMenu(){
@@ -189,7 +234,7 @@ public class VROverlayGameScreen extends VROverlayFrameBuffer {
         if (relativePosition == null || relativeRotation == null) {
             orient(
                     null,
-                    MC.screen
+                    McVersionClientUtils.screen()
             );
         }
 
@@ -226,9 +271,9 @@ public class VROverlayGameScreen extends VROverlayFrameBuffer {
 
 
         int screenWidth = ((WindowExtension) (Object) mcWindow)
-                .visor$getActualScreenWidth();
+                .visor$mcScreenWidth();
         int screenHeight = ((WindowExtension) (Object) mcWindow)
-                .visor$getActualScreenHeight();
+                .visor$mcScreenHeight();
 
         int guiScaledWidth = guiManager.getGuiScaledWidth();
         int guiScaledHeight = guiManager.getGuiScaledHeight();
@@ -262,12 +307,10 @@ public class VROverlayGameScreen extends VROverlayFrameBuffer {
     }
 
     public boolean willBeInMenuRoom(Screen newScreen) {
-        return MC.level == null ||
-                newScreen instanceof WinScreen ||
-                newScreen instanceof ReceivingLevelScreen ||
-                newScreen instanceof ProgressScreen ||
-                newScreen instanceof GenericDirtMessageScreen ||
-                MC.getOverlay() != null;
+        return MC.level == null
+                || newScreen instanceof WinScreen
+                || McVersionClientUtils.isLevelTransitionScreen(newScreen)
+                || McVersionClientUtils.overlay() != null;
     }
 
     @Override
@@ -291,11 +334,11 @@ public class VROverlayGameScreen extends VROverlayFrameBuffer {
 
     @Override
     public boolean mouseClicked(double x, double y, int buttonType) {
-        if (buttonType == 0 && isCursorOnResizeHandle(getRawMouseX(), getRawMouseY())) {
+        if (buttonType == InputConstants.MOUSE_BUTTON_LEFT && isCursorOnResizeHandle(getRawMouseX(), getRawMouseY())) {
             startResizing();
             return true;
         }
-        if (buttonType == 0 && isCursorOnDragHandle(getRawMouseX(), getRawMouseY())) {
+        if (buttonType == InputConstants.MOUSE_BUTTON_LEFT && isCursorOnDragHandle(getRawMouseX(), getRawMouseY())) {
             startDragging();
             return true;
         }
@@ -305,11 +348,11 @@ public class VROverlayGameScreen extends VROverlayFrameBuffer {
 
     @Override
     public boolean mouseReleased(double mouseX, double mouseY, int buttonType) {
-        if (buttonType == 0 && isBeingResized()) {
+        if (buttonType == InputConstants.MOUSE_BUTTON_LEFT && isBeingResized()) {
             stopResizing();
             return true;
         }
-        if (buttonType == 0 && isBeingDragged()) {
+        if (buttonType == InputConstants.MOUSE_BUTTON_LEFT && isBeingDragged()) {
             stopDragging();
             return true;
         }
@@ -319,13 +362,21 @@ public class VROverlayGameScreen extends VROverlayFrameBuffer {
 
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double scrollDelta) {
-        // we use here screen directly
-        // since the scrollDelta received is already calculated
-        // and not applicable to InputHelper scroll method
-        if(MC.screen != null){
-            return MC.screen.mouseScrolled(mouseX, mouseY, scrollDelta);
+        if(McVersionClientUtils.screen() == null){
+            return false;
         }
-        return false;
+        //scroll delta is already calculated...
+        // but we still have to use mouse scroll this way
+        // for screens compatibility with UI mods like JEI
+        double wheelSensitivity = MC.options.mouseWheelSensitivity().get();
+        double rawDelta = wheelSensitivity == 0
+                ? 0
+                : scrollDelta / wheelSensitivity;
+        if(rawDelta == 0){
+            return false;
+        }
+        InputHelper.scrollMouse(0, rawDelta);
+        return true;
     }
 
     @Override
@@ -334,12 +385,17 @@ public class VROverlayGameScreen extends VROverlayFrameBuffer {
     }
     @Override
     public boolean supportsDragging() {
-        return VisorAPI.clientState().sceneType().isWorld();
+        return !willBeInMenuRoom(McVersionClientUtils.screen());
     }
 
     @Override
     public boolean supportsResizing() {
-        return VisorAPI.clientState().sceneType().isWorld();
+        return !willBeInMenuRoom(McVersionClientUtils.screen());
+    }
+
+    @Override
+    public boolean supportsLight() {
+        return !willBeInMenuRoom(McVersionClientUtils.screen());
     }
 
 

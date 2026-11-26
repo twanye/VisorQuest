@@ -1,5 +1,6 @@
 package org.vmstudio.visor.api.client.gui.widgets.sets;
 
+import org.vmstudio.visor.api.compatibility.mcversion.gui.McGuiUtils;
 import lombok.Getter;
 import lombok.Setter;
 import me.phoenixra.atumconfig.api.tuples.PairRecord;
@@ -13,7 +14,7 @@ import org.vmstudio.visor.api.client.gui.widgets.info.WidgetInfoImage;
 import org.vmstudio.visor.api.client.gui.widgets.lists.CheckboxList;
 import org.vmstudio.visor.api.client.gui.widgets.lists.FilterListType;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.Renderable;
 import net.minecraft.client.gui.components.events.GuiEventListener;
 import net.minecraft.client.gui.narration.NarratableEntry;
@@ -73,7 +74,7 @@ public class FiltersListWidgetSet<T> implements FilterListWidgetSet<T> {
         this.filtersMap = builder.filtersMap;
     }
     @Override
-    public void onPreRender(@NotNull GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTicks) {
+    public void onPreRender(@NotNull GuiGraphicsExtractor guiGraphics, int mouseX, int mouseY, float partialTicks) {
         if(backgroundInfo != null){
             GuiTexture texture = backgroundInfo.getTexture();
             texture.blit(
@@ -95,7 +96,7 @@ public class FiltersListWidgetSet<T> implements FilterListWidgetSet<T> {
     @Override
     public void onTick() {
         if(searchBox != null){
-            searchBox.tick();
+            McGuiUtils.tickEditBox(searchBox);
         }
     }
 

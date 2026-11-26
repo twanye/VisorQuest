@@ -1,7 +1,8 @@
 package org.vmstudio.visor.core.client.gui.screens.settings.categories.controls;
 
+import org.vmstudio.visor.api.compatibility.mcversion.gui.McGuiUtils;
 import me.phoenixra.atumvr.api.misc.color.AtumColor;
-import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.Renderable;
 import net.minecraft.client.gui.components.events.GuiEventListener;
 import net.minecraft.client.gui.narration.NarratableEntry;
@@ -19,7 +20,6 @@ import org.vmstudio.visor.core.client.gui.screens.settings.VROptionsSet;
 import org.vmstudio.visor.core.client.gui.screens.settings.VRSettingsScreen;
 import org.vmstudio.visor.core.client.gui.overlays.builtin.keyboard.KeyboardLayout;
 import org.vmstudio.visor.core.client.gui.overlays.builtin.keyboard.KeyboardLayouts;
-import org.vmstudio.visor.core.client.settings.VRClientSettings;
 import org.vmstudio.visor.core.client.settings.VROptionWidgetType;
 
 import java.util.ArrayList;
@@ -60,7 +60,7 @@ public class VRSettingsKeyboardLayouts extends VROptionsSet {
             rawEntries.put(layoutId.name(), layoutId.getDisplayName());
         }
 
-        List<String> selectedIds = VRClientSettings.getKeyboardLayouts()
+        List<String> selectedIds = KeyboardLayouts.getSelected()
                 .stream()
                 .map(Enum::name)
                 .toList();
@@ -94,7 +94,7 @@ public class VRSettingsKeyboardLayouts extends VROptionsSet {
     }
 
     @Override
-    public void onPostRender(@NotNull GuiGraphics guiGraphics,
+    public void onPostRender(@NotNull GuiGraphicsExtractor guiGraphics,
                              int mouseX, int mouseY,
                              float partialTicks) {
         var scaleHelper = getScreen().getScaleHelper();
@@ -120,14 +120,14 @@ public class VRSettingsKeyboardLayouts extends VROptionsSet {
 
     @Override
     public void loadDefaults() {
-        VRClientSettings.setKeyboardLayouts(List.of(KeyboardLayout.ENGLISH));
+        KeyboardLayouts.setSelected(List.of(KeyboardLayout.ENGLISH));
         ClientContext.settingsManager.saveOptions();
         reinit();
     }
 
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double delta) {
-        listWidget.mouseScrolled(mouseX, mouseY, delta);
+        McGuiUtils.mouseScrolled(listWidget, mouseX, mouseY, delta);
         return super.mouseScrolled(mouseX, mouseY, delta);
     }
 
@@ -141,7 +141,7 @@ public class VRSettingsKeyboardLayouts extends VROptionsSet {
                 //empty
             }
         }
-        VRClientSettings.setKeyboardLayouts(enabledLayouts);
+        KeyboardLayouts.setSelected(enabledLayouts);
         ClientContext.settingsManager.saveOptions();
     }
 }

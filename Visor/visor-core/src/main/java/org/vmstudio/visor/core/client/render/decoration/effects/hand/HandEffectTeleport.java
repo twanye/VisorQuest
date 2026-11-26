@@ -1,7 +1,14 @@
 package org.vmstudio.visor.core.client.render.decoration.effects.hand;
 
+import net.minecraft.world.level.lighting.LightEngine;
+import org.vmstudio.visor.api.compatibility.mcversion.render.McGlState;
+import org.vmstudio.visor.api.compatibility.mcversion.render.McShaderProgram;
+import org.vmstudio.visor.api.compatibility.mcversion.McVersionClientUtils;
+import org.vmstudio.visor.api.compatibility.mcversion.render.McShaders;
+import org.vmstudio.visor.api.compatibility.mcversion.render.McVertexBuilder;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.*;
+import com.mojang.renderpearl.api.pipeline.PrimitiveTopology;
 import me.phoenixra.atumvr.api.misc.color.AtumColor;
 import org.vmstudio.visor.api.client.gui.helpers.TexturesHelper;
 import org.vmstudio.visor.api.client.player.pose.PlayerPoseType;
@@ -11,16 +18,14 @@ import org.vmstudio.visor.api.client.render.decoration.annotations.RegisterVRHan
 import org.vmstudio.visor.api.client.render.decoration.effects.VRHandEffect;
 import org.vmstudio.visor.api.common.HandType;
 import org.vmstudio.visor.api.common.addon.VisorAddon;
-import org.vmstudio.visor.compatibility.ShadersHelper;
+import org.vmstudio.visor.compatibility.ShaderCompatHelper;
 import org.vmstudio.visor.core.client.ClientContext;
 import org.vmstudio.visor.core.client.VisorState;
 import org.vmstudio.visor.core.client.render.VRShaders;
 import org.vmstudio.visor.core.client.render.helpers.RenderPoseHelper;
 import org.vmstudio.visor.core.client.render.helpers.RenderShaderHelper;
-import org.vmstudio.visor.core.client.settings.VRClientSettings;
+import org.vmstudio.visor.api.client.settings.VRClientSettings;
 import org.vmstudio.visor.core.client.tasks.types.movement.TaskTeleport;
-import net.minecraft.client.renderer.GameRenderer;
-import net.minecraft.client.renderer.ShaderInstance;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Vec3i;
 import net.minecraft.util.Mth;
@@ -79,39 +84,37 @@ public class HandEffectTeleport extends VRHandEffect {
         poseStack.setIdentity();
         RenderPoseHelper.applyCameraOrientation(renderPass, poseStack);
 
-        RenderSystem.enableBlend();
-        RenderSystem.defaultBlendFunc();
+        McGlState.enableBlend();
+        McGlState.defaultBlendFunc();
 
         // Render the teleport arc and landing pad effect
-        RenderSystem.enableDepthTest();
+        McGlState.enableDepthTest();
 
-        RenderSystem.depthMask(false);
+        McGlState.depthMask(false);
 
         renderTeleportArc(renderPass, poseStack);
 
-        RenderSystem.depthMask(true);
+        McGlState.depthMask(true);
 
         poseStack.popPose();
     }
 
     private void renderTeleportArc(VRRenderPass renderPass,
                                    PoseStack poseStack) {
-        MC.getProfiler().push("teleportArc");
+        McVersionClientUtils.profiler().push("visorTeleportArc");
 
-        RenderSystem.enableCull();
-        RenderSystem.setShader(GameRenderer::getPositionColorShader);
-        MC.getTextureManager().bindForSetup(TexturesHelper.getWhiteTexture());
-        RenderSystem.setShaderTexture(0, TexturesHelper.getWhiteTexture());
+        McGlState.enableCull();
+        McShaders.use(McShaders.Core.POSITION_COLOR);
+        McGlState.setShaderTexture(0, TexturesHelper.getWhiteTexture());
 
-        Tesselator tesselator = Tesselator.getInstance();
-        BufferBuilder builder = tesselator.getBuilder();
-        builder.begin(VertexFormat.Mode.QUADS,
+        McVertexBuilder builder = McVertexBuilder.get();
+        builder.begin(PrimitiveTopology.QUADS,
                 DefaultVertexFormat.POSITION_COLOR_NORMAL);
 
-        double VOffset = lastArcDisplayOffset;
         Vec3 dest = TaskTeleport.getDestination();
         boolean validLocation = dest != null;
 
+        double scroll = lastArcDisplayOffset;
         byte alpha = -1;
         AtumColor color;
         if (!validLocation) {
@@ -123,30 +126,22 @@ public class HandEffectTeleport extends VRHandEffect {
             } else {
                 color = tpUnlimitedColor;
             }
-            VOffset = timer * BEAM_ANIMATION_SPEED * 0.6D;
-            lastArcDisplayOffset = VOffset;
+            scroll = timer * BEAM_ANIMATION_SPEED * 0.6D;
+            lastArcDisplayOffset = scroll;
         }
 
         //LIGHT LEVEL
         if (MC.level != null) {
-            float light = (float) MC.level.getMaxLocalRawBrightness(
-                    BlockPos.containing(
-                            validLocation
-                                    ? dest
-                                    : new Vec3((Vector3f) ClientContext.localPlayer
-                                    .getPoseData(PlayerPoseType.RENDER)
-                                    .getHmd()
-                                    .getPosition())
-                    )
-            );
+            Vec3 lightProbe = validLocation
+                    ? dest
+                    : new Vec3((Vector3f) ClientContext.localPlayer
+                    .getPoseData(PlayerPoseType.RENDER)
+                    .getHmd()
+                    .getPosition());
+            float light = MC.level.getMaxLocalRawBrightness(BlockPos.containing(lightProbe));
+            light = Math.max(light, ShaderCompatHelper.minShaderLight());
 
-            int minLight = ShadersHelper.shaderLight();
-
-            if (light < (float) minLight) {
-                light = (float) minLight;
-            }
-
-            float lightPercent = Math.min(1.0f, light / (float) MC.level.getMaxLightLevel());
+            float lightPercent = Math.min(1.0f, light / LightEngine.MAX_LEVEL);
             color = AtumColor.immutable(
                     Mth.floor(color.getRedInt() * lightPercent),
                     Mth.floor(color.getGreenInt() * lightPercent),
@@ -155,9 +150,9 @@ public class HandEffectTeleport extends VRHandEffect {
             );
         }
 
-        float segmentHalfWidth = BEAM_WIDTH * 0.15F;
+        float halfWidth = BEAM_WIDTH * 0.15F;
         int segments = TaskTeleport.getInstance().getArcSteps() - 1;
-        double segmentProgress = 1.0D / segments;
+        double segmentStep = 1.0D / segments;
 
         var cameraPosition = new Vec3((Vector3f) RenderPoseHelper.getCameraPosition(
                 renderPass,
@@ -171,41 +166,43 @@ public class HandEffectTeleport extends VRHandEffect {
                 color.getBlueInt()
         );
         for (int i = 0; i < segments; i++) {
-            double progress = (double) i / segments + VOffset * segmentProgress;
-            int progressBase = Mth.floor(progress);
-            progress -= progressBase;
+            double progress = Mth.frac((double) i / segments + scroll * segmentStep);
 
-            Vec3 start = TaskTeleport.getArcPosInterpolated((float) (progress - segmentProgress * 0.4F))
+            Vec3 tail = TaskTeleport.getArcPosInterpolated((float) (progress - segmentStep * 0.4F))
                     .subtract(cameraPosition);
-            Vec3 end = TaskTeleport.getArcPosInterpolated((float) progress)
+            Vec3 head = TaskTeleport.getArcPosInterpolated((float) progress)
                     .subtract(cameraPosition);
 
-            float shift = (float) progress * 2.0F;
+            float rise = (float) progress * 2.0F;
             renderBox(
-                    tesselator,
-                    start, end,
-                    -segmentHalfWidth, segmentHalfWidth,
-                    (-1.0F + shift) * segmentHalfWidth,
-                    (1.0F + shift) * segmentHalfWidth * 0.3f,
+                    builder,
+                    tail, head,
+                    -halfWidth, halfWidth,
+                    (rise - 1.0F) * halfWidth,
+                    (rise + 1.0F) * halfWidth * 0.3f,
                     colorInt,
                     alpha,
                     poseStack
             );
         }
-        tesselator.end();
+        builder.draw();
 
         // Custom Shader Landing Pad Effect using our own shader
         if (validLocation && TaskTeleport.getInstance().isArcActive()) {
 
-            RenderSystem.disableCull();
+            McGlState.disableCull();
 
-            VRShaders.getTeleportPoint().prepare(
+            //? if >=1.21.6 {
+            VRShaders.getTeleportPoint().prepare(timer, color);
+            //?} else {
+            /*VRShaders.getTeleportPoint().prepare(
                     RenderSystem.getModelViewMatrix(),
                     RenderSystem.getProjectionMatrix(),
                     timer,
                     color
             );
-            ShaderInstance shaderInstance = VRShaders.getTeleportPoint().getHandle();
+            *///?}
+            McShaderProgram shaderInstance = VRShaders.getTeleportPoint().getHandle();
 
 
             // Calculate destination relative to camera and add slight offset to avoid z-fighting
@@ -218,10 +215,10 @@ public class HandEffectTeleport extends VRHandEffect {
 
 
             shaderInstance.clear();
-            RenderSystem.enableCull();
+            McGlState.enableCull();
         }
 
-        MC.getProfiler().pop();
+        McVersionClientUtils.profiler().pop();
 
     }
 
@@ -231,13 +228,18 @@ public class HandEffectTeleport extends VRHandEffect {
         Matrix4f matrix = poseStack.last().pose();
 
         RenderShaderHelper.renderQuad(
-                VRShaders.getTeleportPoint().getHandle().getVertexFormat(),
+                VRShaders.getTeleportPoint().getHandle().vertexFormat(),
                 matrix,
                 (float) center.x - halfSize,
                 (float) center.y,
                 (float) center.z - halfSize,
                 (float) center.x + halfSize,
-                (float) center.z + halfSize
+                (float) center.z + halfSize,
+                //? if >=1.21.6 {
+                true
+                //?} else {
+                /*false
+                *///?}
         );
     }
 
@@ -246,72 +248,48 @@ public class HandEffectTeleport extends VRHandEffect {
     }
 
 
-    public static void renderBox(Tesselator tes, Vec3 start, Vec3 end,
+    public static void renderBox(McVertexBuilder buffer, Vec3 start, Vec3 end,
                                  float minX, float maxX,
                                  float minY, float maxY,
                                  Vec3i color, byte alpha,
                                  PoseStack poseStack) {
-        Vec3 forward = start.subtract(end).normalize();
-        Vec3 right = forward.cross(new Vec3(0.0D, 1.0D, 0.0D));
-        Vec3 up = right.cross(forward);
+        Vec3 axis = start.subtract(end).normalize();
+        Vec3 side = axis.cross(new Vec3(0.0D, 1.0D, 0.0D));
+        Vec3 lift = side.cross(axis);
 
-        Vec3 left = right.scale(minX);
-        right = right.scale(maxX);
+        Vec3[] corners = new Vec3[8];
+        for (int i = 0; i < 8; i++) {
+            Vec3 base = (i & 4) == 0 ? start : end;
+            Vec3 s = side.scale((i & 2) == 0 ? minX : maxX);
+            Vec3 v = lift.scale((i & 1) == 0 ? minY : maxY);
+            corners[i] = base.add(s.x + v.x, s.y + v.y, s.z + v.z);
+        }
 
-        Vec3 down = up.scale(minY);
-        up = up.scale(maxY);
+        Vec3 sideNormal = side.scale(maxX).normalize();
+        Vec3 liftNormal = lift.scale(maxY).normalize();
+        Vec3[] faceNormals = {
+                axis, axis.reverse(),
+                sideNormal, sideNormal.reverse(),
+                liftNormal, liftNormal.reverse()
+        };
+        int[][] faces = {
+                {2, 0, 1, 3},   // start cap
+                {4, 6, 7, 5},   // end cap
+                {6, 2, 3, 7},   // max-side wall
+                {0, 4, 5, 1},   // min-side wall
+                {1, 5, 7, 3},   // top
+                {4, 0, 2, 6}    // bottom
+        };
 
-        Vec3 upNormal = up.normalize();
-        Vec3 rightNormal = right.normalize();
-
-        Vec3 backRightBottom = start.add(right.x + down.x, right.y + down.y, right.z + down.z);
-        Vec3 backRightTop = start.add(right.x + up.x, right.y + up.y, right.z + up.z);
-        Vec3 backLeftBottom = start.add(left.x + down.x, left.y + down.y, left.z + down.z);
-        Vec3 backLeftTop = start.add(left.x + up.x, left.y + up.y, left.z + up.z);
-
-        Vec3 frontRightBottom = end.add(right.x + down.x, right.y + down.y, right.z + down.z);
-        Vec3 frontRightTop = end.add(right.x + up.x, right.y + up.y, right.z + up.z);
-        Vec3 frontLeftBottom = end.add(left.x + down.x, left.y + down.y, left.z + down.z);
-        Vec3 frontLeftTop = end.add(left.x + up.x, left.y + up.y, left.z + up.z);
-
-        BufferBuilder bufferbuilder = tes.getBuilder();
         Matrix4f mat = poseStack.last().pose();
-
-        addVertex(bufferbuilder, mat, backRightBottom, color, alpha, forward);
-        addVertex(bufferbuilder, mat, backLeftBottom, color, alpha, forward);
-        addVertex(bufferbuilder, mat, backLeftTop, color, alpha, forward);
-        addVertex(bufferbuilder, mat, backRightTop, color, alpha, forward);
-
-        forward.reverse();
-        addVertex(bufferbuilder, mat, frontLeftBottom, color, alpha, forward);
-        addVertex(bufferbuilder, mat, frontRightBottom, color, alpha, forward);
-        addVertex(bufferbuilder, mat, frontRightTop, color, alpha, forward);
-        addVertex(bufferbuilder, mat, frontLeftTop, color, alpha, forward);
-
-        addVertex(bufferbuilder, mat, frontRightBottom, color, alpha, rightNormal);
-        addVertex(bufferbuilder, mat, backRightBottom, color, alpha, rightNormal);
-        addVertex(bufferbuilder, mat, backRightTop, color, alpha, rightNormal);
-        addVertex(bufferbuilder, mat, frontRightTop, color, alpha, rightNormal);
-
-        rightNormal.reverse();
-        addVertex(bufferbuilder, mat, backLeftBottom, color, alpha, rightNormal);
-        addVertex(bufferbuilder, mat, frontLeftBottom, color, alpha, rightNormal);
-        addVertex(bufferbuilder, mat, frontLeftTop, color, alpha, rightNormal);
-        addVertex(bufferbuilder, mat, backLeftTop, color, alpha, rightNormal);
-
-        addVertex(bufferbuilder, mat, backLeftTop, color, alpha, upNormal);
-        addVertex(bufferbuilder, mat, frontLeftTop, color, alpha, upNormal);
-        addVertex(bufferbuilder, mat, frontRightTop, color, alpha, upNormal);
-        addVertex(bufferbuilder, mat, backRightTop, color, alpha, upNormal);
-
-        upNormal.reverse();
-        addVertex(bufferbuilder, mat, frontLeftBottom, color, alpha, upNormal);
-        addVertex(bufferbuilder, mat, backLeftBottom, color, alpha, upNormal);
-        addVertex(bufferbuilder, mat, backRightBottom, color, alpha, upNormal);
-        addVertex(bufferbuilder, mat, frontRightBottom, color, alpha, upNormal);
+        for (int f = 0; f < faces.length; f++) {
+            for (int corner : faces[f]) {
+                addVertex(buffer, mat, corners[corner], color, alpha, faceNormals[f]);
+            }
+        }
     }
 
-    private static void addVertex(BufferBuilder buff,
+    private static void addVertex(McVertexBuilder buff,
                                   Matrix4f mat, Vec3 pos, Vec3i color,
                                   int alpha, Vec3 normal) {
         buff.vertex(mat, (float) pos.x, (float) pos.y, (float) pos.z)

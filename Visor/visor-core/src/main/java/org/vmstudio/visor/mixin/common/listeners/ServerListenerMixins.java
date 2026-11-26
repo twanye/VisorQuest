@@ -3,7 +3,6 @@ package org.vmstudio.visor.mixin.common.listeners;
 import org.vmstudio.visor.core.server.network.ServerNetworking;
 import org.vmstudio.visor.core.server.VisorServerImpl;
 import net.minecraft.network.TickablePacketListener;
-import net.minecraft.network.chat.Component;
 import net.minecraft.network.protocol.game.ServerGamePacketListener;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.network.ServerGamePacketListenerImpl;
@@ -29,7 +28,7 @@ public class ServerListenerMixins {
         }
 
         @Inject(at = @At("TAIL"), method = "onDisconnect")
-        public void visor$onPlayerLeave(Component component, CallbackInfo ci) {
+        public void visor$onPlayerLeave(CallbackInfo ci) {
             // remove player from vr player list, when they leave
 
             VisorServerImpl.INSTANCE.removePlayer(this.player);

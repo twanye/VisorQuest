@@ -1,14 +1,18 @@
 package org.vmstudio.visor.core.server.network;
 
 import org.jetbrains.annotations.NotNull;
+import org.vmstudio.visor.api.compatibility.mcversion.McEntity;
 import org.vmstudio.visor.api.ModLoader;
 import org.vmstudio.visor.api.VisorAPI;
 import org.vmstudio.visor.api.common.network.VisorChannel;
 import org.vmstudio.visor.api.common.network.VisorCorePayloadID;
 import org.vmstudio.visor.api.common.network.VisorNetwork;
 import org.vmstudio.visor.api.common.network.VisorPayloadToClient;
+import org.vmstudio.visor.api.common.network.buffer.PoseDataBuffer;
+import org.vmstudio.visor.api.common.network.buffer.PoseHandsBuffer;
+import org.vmstudio.visor.api.common.network.buffer.PoseTrackersBuffer;
 import org.vmstudio.visor.api.common.network.toclient.vrstate.other.*;
-import org.vmstudio.visor.api.common.utils.LoggerUtils;
+import org.vmstudio.visor.api.server.VRServerSettings;
 import org.vmstudio.visor.api.server.player.VRServerPlayer;
 import org.vmstudio.visor.compatibility.flashback.FlashbackCompatHelper;
 import org.vmstudio.visor.compatibility.replaymod.ReplayCompatHelper;
@@ -68,7 +72,7 @@ public class ServerNetworking {
 
     public static void kickDelayedIfNoVR(ServerPlayer serverPlayer) {
         scheduler.schedule(() -> {
-            if(serverPlayer.server.isShutdown()){
+            if(McEntity.serverLevel(serverPlayer).getServer().isShutdown()){
                 return;
             }
             if(serverPlayer.hasDisconnected()){
@@ -77,8 +81,12 @@ public class ServerNetworking {
             VRServerPlayer vrPlayer = VisorAPI.server()
                     .getVRPlayer(serverPlayer);
 
-            if(serverPlayer.server.getPlayerList()
-                    .isOp(serverPlayer.getGameProfile())){
+            if(McEntity.serverLevel(serverPlayer).getServer().getPlayerList()
+                    //? if >=1.21.9 {
+                    .isOp(serverPlayer.nameAndId())){
+                    //?} else {
+                    /*.isOp(serverPlayer.getGameProfile())){
+                    *///?}
                 return;
             }
 
@@ -139,7 +147,7 @@ public class ServerNetworking {
                         createVRPacket(
                                 new VROtherStartTrackingPayloadToClient(
                                         uuid,
-                                        new VROtherPoseDataPayloadToClient(uuid, vrPlayer.getPoseDataBuffer()),
+                                        new VROtherPoseDataPayloadToClient(uuid, getPoseDataForOthers(vrPlayer)),
                                         new VROtherBodyTypePayloadToClient(uuid, vrBody),
                                         new VROtherLeftHandedPayloadToClient(uuid, leftHanded),
                                         new VROtherRotationYPayloadToClient(uuid, rotationY),
@@ -223,7 +231,23 @@ public class ServerNetworking {
         sendPacketToConnections(
                 serverPlayer, trackerConnections,
                 false, newTrackers,
-                new VROtherPoseDataPayloadToClient(uuid, vrPlayer.getPoseDataBuffer())
+                new VROtherPoseDataPayloadToClient(uuid, getPoseDataForOthers(vrPlayer))
+        );
+    }
+
+    private static PoseDataBuffer getPoseDataForOthers(VRServerPlayerImpl vrPlayer) {
+        PoseDataBuffer buffer = vrPlayer.getPoseDataBuffer();
+        boolean stripTrackers = !VRServerSettings.isBodyTrackersSendToOthers();
+        boolean stripHands = !VRServerSettings.isHandTrackersSendToOthers();
+        if (!stripTrackers && !stripHands) {
+            return buffer;
+        }
+        return new PoseDataBuffer(
+                buffer.hmd(),
+                buffer.mainHand(),
+                buffer.offhand(),
+                stripTrackers ? PoseTrackersBuffer.createEmpty() : buffer.trackers(),
+                stripHands ? PoseHandsBuffer.createEmpty() : buffer.hands()
         );
     }
 
@@ -274,15 +298,15 @@ public class ServerNetworking {
 
 
     public static Set<ServerPlayerConnection> getTrackedVRPlayers(ServerPlayer trackedBy) {
-        ChunkMap chunkMap = trackedBy.serverLevel().getChunkSource().chunkMap;
+        ChunkMap chunkMap = McEntity.serverLevel(trackedBy).getChunkSource().chunkMap;
         var vrServer = VisorServerImpl.INSTANCE;
 
-        TrackedEntityAccessor entityAccessor = ((ChunkMapAccessor) chunkMap).getTrackedEntities()
+        TrackedEntityAccessor entityAccessor = ((ChunkMapAccessor) chunkMap).getEntityMap()
                 .get(trackedBy.getId());
         if(entityAccessor == null){
             return Collections.emptySet();
         }
-        return entityAccessor.getPlayersTracking().stream()
+        return entityAccessor.getSeenBy().stream()
                 .filter(it->
                         vrServer.getVisorPlayer(it.getPlayer().getUUID()) != null
                 )

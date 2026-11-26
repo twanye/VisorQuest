@@ -1,25 +1,26 @@
 package org.vmstudio.visor.core.client.render.helpers;
 
+import org.vmstudio.visor.api.compatibility.mcversion.render.McGlState;
+import org.vmstudio.visor.api.compatibility.mcversion.render.McProjection;
+import org.vmstudio.visor.api.compatibility.mcversion.render.McFog;
+import org.vmstudio.visor.api.compatibility.mcversion.render.McModelViewStack;
+import org.vmstudio.visor.api.compatibility.mcversion.render.McRenderTarget;
+
 import com.mojang.blaze3d.pipeline.RenderTarget;
-import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.*;
 import me.phoenixra.atumvr.api.enums.EyeType;
 import org.vmstudio.visor.extensions.client.WindowExtension;
 import org.vmstudio.visor.core.client.render.VRShaders;
-import org.vmstudio.visor.core.client.settings.VRClientSettings;
+import org.vmstudio.visor.api.client.settings.VRClientSettings;
 import org.vmstudio.visor.core.client.utils.ClientUtils;
-import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.GuiGraphics;
+import org.vmstudio.visor.api.compatibility.mcversion.gui.McGuiRenderer;
+import org.vmstudio.visor.api.compatibility.mcversion.gui.McGuiUtils;
 import org.joml.Matrix4f;
 
 import java.util.List;
 
 import org.vmstudio.visor.core.client.ClientContext;
-import org.lwjgl.opengl.GL11C;
-import org.lwjgl.opengl.GL30C;
 
-import static com.mojang.blaze3d.platform.GlStateManager._glBindFramebuffer;
-import static com.mojang.blaze3d.platform.GlStateManager._glBlitFrameBuffer;
 import static org.vmstudio.visor.core.client.VisorClientImpl.MC;
 
 public class MirrorHelper {
@@ -28,7 +29,11 @@ public class MirrorHelper {
     }
 
 
-    public static void drawMirror() {
+    public static void drawMirror(boolean vrFrameRendered) {
+        if (!vrFrameRendered) {
+            drawGuiMirror();
+            return;
+        }
         switch (VRClientSettings.getMirrorMode()){
             case OFF -> drawTextMirror("Mirror is OFF", true);
             case GUI -> drawGuiMirror();
@@ -45,8 +50,8 @@ public class MirrorHelper {
     private static void drawGuiMirror(){
         RenderTarget source = ClientContext.renderer.guiTarget.getTarget();
 
-        int screenWidth = ((WindowExtension) (Object) MC.getWindow()).visor$getActualScreenWidth();
-        int screenHeight = ((WindowExtension) (Object) MC.getWindow()).visor$getActualScreenHeight();
+        int screenWidth = ((WindowExtension) (Object) MC.getWindow()).visor$mcScreenWidth();
+        int screenHeight = ((WindowExtension) (Object) MC.getWindow()).visor$mcScreenHeight();
         blit(
                 source,
                 0,0,
@@ -66,8 +71,8 @@ public class MirrorHelper {
         float xCrop = VRClientSettings.getMirrorCrop();
         float yCrop = VRClientSettings.getMirrorCrop();
 
-        int screenWidth = ((WindowExtension) (Object) MC.getWindow()).visor$getActualScreenWidth();
-        int screenHeight = ((WindowExtension) (Object) MC.getWindow()).visor$getActualScreenHeight();
+        int screenWidth = ((WindowExtension) (Object) MC.getWindow()).visor$mcScreenWidth();
+        int screenHeight = ((WindowExtension) (Object) MC.getWindow()).visor$mcScreenHeight();
 
         blitCropped(
                 source,
@@ -85,8 +90,8 @@ public class MirrorHelper {
             source = ClientContext.renderer.getTextureRightEye().getRenderTarget();
         }
 
-        int screenWidth = ((WindowExtension) (Object) MC.getWindow()).visor$getActualScreenWidth();
-        int screenHeight = ((WindowExtension) (Object) MC.getWindow()).visor$getActualScreenHeight();
+        int screenWidth = ((WindowExtension) (Object) MC.getWindow()).visor$mcScreenWidth();
+        int screenHeight = ((WindowExtension) (Object) MC.getWindow()).visor$mcScreenHeight();
         blit(
                 source,
                 0,0,
@@ -101,8 +106,8 @@ public class MirrorHelper {
     private static void drawFirstPersonMirror(){
         RenderTarget source = ClientContext.renderer.firstPersonTarget.getTarget();
 
-        int screenWidth = ((WindowExtension) (Object) MC.getWindow()).visor$getActualScreenWidth();
-        int screenHeight = ((WindowExtension) (Object) MC.getWindow()).visor$getActualScreenHeight();
+        int screenWidth = ((WindowExtension) (Object) MC.getWindow()).visor$mcScreenWidth();
+        int screenHeight = ((WindowExtension) (Object) MC.getWindow()).visor$mcScreenHeight();
         blit(
                 source,
                 0,0,
@@ -112,8 +117,8 @@ public class MirrorHelper {
     private static void drawThirdPersonMirror(){
         RenderTarget source = ClientContext.renderer.thirdPersonTarget.getTarget();
 
-        int screenWidth = ((WindowExtension) (Object) MC.getWindow()).visor$getActualScreenWidth();
-        int screenHeight = ((WindowExtension) (Object) MC.getWindow()).visor$getActualScreenHeight();
+        int screenWidth = ((WindowExtension) (Object) MC.getWindow()).visor$mcScreenWidth();
+        int screenHeight = ((WindowExtension) (Object) MC.getWindow()).visor$mcScreenHeight();
         blit(
                 source,
                 0,0,
@@ -126,8 +131,8 @@ public class MirrorHelper {
         RenderTarget rightEye = ClientContext.renderer
                 .getTextureRightEye().getRenderTarget();
 
-        int screenWidth = ((WindowExtension) (Object) MC.getWindow()).visor$getActualScreenWidth() / 2;
-        int screenHeight = ((WindowExtension) (Object) MC.getWindow()).visor$getActualScreenHeight();
+        int screenWidth = ((WindowExtension) (Object) MC.getWindow()).visor$mcScreenWidth() / 2;
+        int screenHeight = ((WindowExtension) (Object) MC.getWindow()).visor$mcScreenHeight();
 
         blit(
                 leftEye,
@@ -138,7 +143,7 @@ public class MirrorHelper {
         blit(
                 rightEye,
                 screenWidth,0,
-                MC.mainRenderTarget.width, screenHeight
+                McRenderTarget.mainTarget().width, screenHeight
         );
 
     }
@@ -159,34 +164,33 @@ public class MirrorHelper {
 
         // 1) get the VR mirror dimensions
         var window  = (WindowExtension)(Object)MC.getWindow();
-        int vrWidth = window.visor$getActualScreenWidth();
-        int vrHeight= window.visor$getActualScreenHeight();
+        int vrWidth = window.visor$mcScreenWidth();
+        int vrHeight= window.visor$mcScreenHeight();
 
         // 2) viewport + projection
-        RenderSystem.backupProjectionMatrix();
-        RenderSystem.viewport(0, 0, vrWidth, vrHeight);
+        McProjection.State savedProjection = McProjection.save();
+        McGlState.viewport(0, 0, vrWidth, vrHeight);
         var proj = new Matrix4f().setOrtho(0, vrWidth, vrHeight, 0, NEAR_PLANE, FAR_PLANE);
-        RenderSystem.setProjectionMatrix(proj, VertexSorting.ORTHOGRAPHIC_Z);
+        McProjection.setOrthographic(proj);
 
         // 3) push / configure model-view
-        var mv = RenderSystem.getModelViewStack();
-        mv.pushPose();
+        McModelViewStack.push();
         try {
-            mv.setIdentity();
-            mv.translate(0, 0, -CAMERA_Z);
-            RenderSystem.applyModelViewMatrix();
+            McModelViewStack.identity();
+            McModelViewStack.translate(0, 0, -CAMERA_Z);
+            McModelViewStack.apply();
 
             // 4) disable fog + clear
-            RenderSystem.setShaderFogStart(Float.MAX_VALUE);
+            McFog.disable();
             int flags = CLEAR_DEPTH_FLAG | (clearBackground ? CLEAR_COLOR_FLAG : 0);
-            RenderSystem.clear(flags, Minecraft.ON_OSX);
+            McGlState.clear(flags);
             if (clearBackground) {
-                RenderSystem.clearColor(0, 0, 0, 0);
+                McGlState.clearColor(0, 0, 0, 0);
             }
 
-            // 5) prepare GuiGraphics with scaled text
-            var gui = new GuiGraphics(MC, MC.renderBuffers().bufferSource());
-            gui.pose().scale(TEXT_SCALE, TEXT_SCALE, TEXT_SCALE);
+            // 5) prepare GuiGraphicsExtractor with scaled text
+            var gui = McGuiRenderer.begin();
+            McGuiUtils.scale(gui, TEXT_SCALE, TEXT_SCALE);
 
             // 6) wrap & draw text lines
             int wrapWidth = vrWidth / CHAR_WIDTH;
@@ -196,15 +200,15 @@ public class MirrorHelper {
 
             int y = LINE_HEIGHT;
             for (String line : lines) {
-                gui.drawString(MC.font, line, TEXT_X_OFFSET, y, TEXT_COLOR);
+                McGuiUtils.drawString(gui, MC.font, line, TEXT_X_OFFSET, y, TEXT_COLOR);
                 y += LINE_HEIGHT;
             }
 
-            gui.flush();
+            McGuiRenderer.end(gui);
         } finally {
-            mv.popPose();
-            RenderSystem.applyModelViewMatrix();
-            RenderSystem.restoreProjectionMatrix();
+            McModelViewStack.pop();
+            McModelViewStack.apply();
+            McProjection.restore(savedProjection);
             RenderStateHelper.restoreAfterExternalRender();
         }
     }
@@ -213,43 +217,40 @@ public class MirrorHelper {
     public static void blit(RenderTarget source,
                             int left, int top,
                             int right, int bottom) {
-        _glBindFramebuffer(GL30C.GL_READ_FRAMEBUFFER, source.frameBufferId);
-        _glBlitFrameBuffer(
-                0, 0, source.width, source.height,
-                left, top, right, bottom,
-                GL11C.GL_COLOR_BUFFER_BIT, GL11C.GL_LINEAR);
-        _glBindFramebuffer(GL30C.GL_READ_FRAMEBUFFER, 0);
+        McRenderTarget.blit(
+                source, 0, 0, source.width, source.height,
+                McRenderTarget.mainTarget(), left, top, right, bottom,
+                true);
         RenderStateHelper.restoreAfterExternalRender();
     }
 
     public static void blitCropped(RenderTarget source,
                                    int left, int top,
                                    int right, int bottom,
-                                   float xCropFactor, float yCropFactor,
+                                   float cropX, float cropY,
                                    boolean keepAspect) {
+        RenderTarget destination = McRenderTarget.mainTarget();
         if (keepAspect) {
-            float targetAspect = (float) MC.mainRenderTarget.width / (float) MC.mainRenderTarget.height;
-            float sourceAspect = (float) source.viewWidth / (float) source.viewHeight;
-            if (targetAspect > sourceAspect) {
-                yCropFactor = 0.5F
-                        - (sourceAspect / targetAspect) * (0.5F - yCropFactor);
+            float dstAspect = (float) destination.width / (float) destination.height;
+            float srcAspect = (float) McRenderTarget.viewWidth(source) / (float) McRenderTarget.viewHeight(source);
+            if (dstAspect > srcAspect) {
+                float ratio = srcAspect / dstAspect;
+                cropY = 0.5F * (1F - ratio) + ratio * cropY;
             } else {
-                xCropFactor = 0.5F
-                        - (targetAspect / sourceAspect) * (0.5F - xCropFactor);
+                float ratio = dstAspect / srcAspect;
+                cropX = 0.5F * (1F - ratio) + ratio * cropX;
             }
         }
 
-        int xMin = (int) (xCropFactor * source.width);
-        int yMin = (int) (yCropFactor * source.height);
-        int xMax = source.width - xMin;
-        int yMax = source.height - yMin;
+        int srcX0 = (int) (cropX * source.width);
+        int srcY0 = (int) (cropY * source.height);
+        int srcX1 = source.width - srcX0;
+        int srcY1 = source.height - srcY0;
 
-        _glBindFramebuffer(GL30C.GL_READ_FRAMEBUFFER, source.frameBufferId);
-        _glBlitFrameBuffer(
-                xMin, yMin, xMax, yMax,
-                left, top, right, bottom,
-                GL11C.GL_COLOR_BUFFER_BIT, GL11C.GL_LINEAR);
-        _glBindFramebuffer(GL30C.GL_READ_FRAMEBUFFER, 0);
+        McRenderTarget.blit(
+                source, srcX0, srcY0, srcX1, srcY1,
+                destination, left, top, right, bottom,
+                true);
         RenderStateHelper.restoreAfterExternalRender();
     }
 

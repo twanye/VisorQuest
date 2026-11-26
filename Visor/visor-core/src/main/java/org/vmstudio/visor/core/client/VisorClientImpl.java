@@ -7,25 +7,24 @@ import me.phoenixra.atumconfig.core.AtumPlaceholderHandler;
 import me.phoenixra.atumvr.api.AtumVRProvider;
 import me.phoenixra.atumvr.api.AtumVRState;
 import me.phoenixra.atumvr.api.utils.GLUtils;
-import org.vmstudio.visor.api.ModLoader;
+import me.phoenixra.atumvr.core.enums.XRSessionState;
 import org.vmstudio.visor.api.VisorAPI;
 import org.vmstudio.visor.api.VisorClient;
 import org.vmstudio.visor.api.client.ClientFeature;
 import org.vmstudio.visor.api.client.events.render.RenderFrameStartedVREvent;
-import org.vmstudio.visor.api.client.events.render.RenderPipelineStageVREvent;
 import org.vmstudio.visor.api.client.input.action.VRActions;
 import org.vmstudio.visor.api.client.player.VRClientPlayer;
 import org.vmstudio.visor.api.client.player.VRLocalPlayer;
 import org.vmstudio.visor.api.client.input.VRInputManager;
 import org.vmstudio.visor.api.client.player.body.VRBodyType;
-import org.vmstudio.visor.api.client.render.RenderPipelineStage;
 import org.vmstudio.visor.api.common.HandType;
 import org.vmstudio.visor.api.common.player.VRPose;
+import org.vmstudio.visor.compatibility.flashback.FlashbackCompatHelper;
+import org.vmstudio.visor.compatibility.immediatelyfast.ImmediatelyFastCompatHelper;
 import org.vmstudio.visor.compatibility.immportals.ImmPortalsCompatHelper;
 import org.vmstudio.visor.compatibility.iris.IrisCompatHelper;
 import org.vmstudio.visor.core.client.input.actions.*;
 import org.vmstudio.visor.core.client.network.ClientNetworking;
-import org.vmstudio.visor.core.client.network.ClientPacketHandler;
 import org.vmstudio.visor.core.client.player.VRClientPlayers;
 import org.vmstudio.visor.core.client.player.VRLocalPlayerImpl;
 import org.vmstudio.visor.core.client.render.VRRenderState;
@@ -39,7 +38,7 @@ import org.vmstudio.visor.core.client.input.VRInputManagerImpl;
 import org.vmstudio.visor.core.client.provider.openxr.XrProvider;
 import org.vmstudio.visor.core.client.render.VRRendererBase;
 import org.vmstudio.visor.core.client.render.decoration.DecorationRendererImpl;
-import org.vmstudio.visor.core.client.settings.VRClientSettings;
+import org.vmstudio.visor.api.client.settings.VRClientSettings;
 import org.vmstudio.visor.core.client.settings.VRClientSettingsManager;
 import org.vmstudio.visor.core.client.tasks.VisorTaskRegistry;
 import org.vmstudio.visor.core.common.addon.AddonManagerImpl;
@@ -47,12 +46,17 @@ import org.vmstudio.visor.core.common.addon.CoreAddonClient;
 
 import org.vmstudio.visor.api.common.utils.LoggerUtils;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.screens.OptionsScreen;
+//? if >=1.21 {
+import net.minecraft.client.gui.screens.options.OptionsScreen;
+//?} else {
+/*import net.minecraft.client.gui.screens.OptionsScreen;
+*///?}
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.vmstudio.visor.core.common.player.VRPoseImpl;
+import org.vmstudio.visor.api.compatibility.mcversion.McVersionClientUtils;
 
 import java.util.ArrayList;
 import java.util.UUID;
@@ -142,6 +146,7 @@ public class VisorClientImpl implements VisorClient {
 
         VRActions.Provider.setShift(ActionShift::new);
         VRActions.Provider.setMenu(ActionMenu::new);
+        VRActions.Provider.setScreenshot(ActionScreenshot::new);
 
         //-------Addons-------
         taskRegistry = new VisorTaskRegistry();
@@ -177,6 +182,7 @@ public class VisorClientImpl implements VisorClient {
 
         ImmPortalsCompatHelper.prepare(ClientContext.coreAddon);
         IrisCompatHelper.prepare(ClientContext.coreAddon);
+        ImmediatelyFastCompatHelper.prepare(ClientContext.coreAddon);
 
     }
 
@@ -196,6 +202,15 @@ public class VisorClientImpl implements VisorClient {
         vrProvider.syncState();
     }
 
+    //When VR runtime asks app to become idle and don't send swapChains
+    public void idleVRFrame(){
+        try {
+            vrProvider.idleFrame();
+        } catch (Throwable e) {
+            VisorState.destroyVRWithErrorScreen(e);
+        }
+    }
+
 
     public void onGameLoopStart(){
         try {
@@ -212,7 +227,7 @@ public class VisorClientImpl implements VisorClient {
             ClientContext.inputManager.update();
             VRClientPlayers.onGameLoopStart();
 
-            if (!(MC.screen instanceof OptionsScreen)
+            if (!(McVersionClientUtils.screen() instanceof OptionsScreen)
                     && VRClientSettings.getEyeFovScaleCurrent() != VRClientSettings.getEyesFovScale()) {
                 VRClientSettings.setEyeFovScaleCurrent(
                         VRClientSettings.getEyesFovScale()
@@ -282,6 +297,9 @@ public class VisorClientImpl implements VisorClient {
             VRClientPlayers.postTick();
         } catch (Throwable e) {
             VisorState.destroyVRWithErrorScreen(e);
+        } finally {
+            // save VR poses in flashback
+            FlashbackCompatHelper.flushDeferredEndTick();
         }
     }
 
@@ -338,14 +356,19 @@ public class VisorClientImpl implements VisorClient {
 
 
 
-    public boolean isActive(){
-        AtumVRState state = vrProvider.getState();
-        return state.isActive();
-    }
-
     public boolean isFocused(){
         AtumVRState state = vrProvider.getState();
         return state.isFocused();
+    }
+
+    public boolean isSessionVisible(){
+        XRSessionState sessionState = ((XrProvider) vrProvider).getSessionState();
+        return sessionState == XRSessionState.VISIBLE
+                || sessionState == XRSessionState.FOCUSED;
+    }
+
+    public boolean isSessionRunning(){
+        return ((XrProvider) vrProvider).getState().isReady();
     }
 
 

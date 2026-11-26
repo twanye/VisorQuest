@@ -1,49 +1,70 @@
 package org.vmstudio.visor.mixin.client.input;
 
 
-import com.llamalad7.mixinextras.sugar.Share;
-import com.llamalad7.mixinextras.sugar.ref.LocalBooleanRef;
+//? if >=1.21.2 {
+import org.objectweb.asm.Opcodes;
+//?}
+import org.spongepowered.asm.mixin.Unique;
+import org.vmstudio.visor.api.compatibility.mcversion.McPlayerInput;
 import org.vmstudio.visor.core.client.ClientContext;
 import org.vmstudio.visor.core.client.VisorState;
 import org.vmstudio.visor.core.client.tasks.types.movement.TaskRoomSneak;
+import org.vmstudio.visor.core.client.tasks.types.movement.vehicle.TaskVehicle;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.player.Input;
 import net.minecraft.client.player.KeyboardInput;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+import org.vmstudio.visor.api.compatibility.mcversion.McVersionClientUtils;
 
 
 @Mixin(KeyboardInput.class)
-public class MovementInputMixin extends Input {
+public class MovementInputMixin {
 
 
     /* ****************** *\
   //--------MOVEMENT--------\\
     \* ****************** */
-    @Inject(method = "tick", at = @At(value = "FIELD", target = "Lnet/minecraft/client/player/KeyboardInput;shiftKeyDown:Z", shift = At.Shift.AFTER))
-    public void visor$movement(boolean isSneaking,
-                               float sneakSpeed,
-                               CallbackInfo ci,
-                               @Share("climbing") LocalBooleanRef climbing) {
+    //? if >=1.21.5 {
+    // javac writes the inherited field through KeyboardInput, and Mixin matches the owner exactly
+    @Inject(method = "tick", at = @At(value = "FIELD", target = "Lnet/minecraft/client/player/KeyboardInput;moveVector:Lnet/minecraft/world/phys/Vec2;", opcode = Opcodes.PUTFIELD, ordinal = 0, shift = At.Shift.AFTER))
+    public void visor$applyVrInput(CallbackInfo ci) {
+        visor$applyVrInputState();
+    }
+    //?} elif >=1.21.2 {
+    /*// 1.21.2 builds the key record first, so the first impulse write is the spot before the sneak multiplier
+    @Inject(method = "tick", at = @At(value = "FIELD", target = "Lnet/minecraft/client/player/KeyboardInput;leftImpulse:F", opcode = Opcodes.PUTFIELD, ordinal = 0, shift = At.Shift.AFTER))
+    public void visor$applyVrInput(CallbackInfo ci) {
+        visor$applyVrInputState();
+    }
+    *///?} else {
+    /*@Inject(method = "tick", at = @At(value = "FIELD", target = "Lnet/minecraft/client/player/KeyboardInput;shiftKeyDown:Z", shift = At.Shift.AFTER))
+    public void visor$applyVrInput(CallbackInfo ci) {
+        visor$applyVrInputState();
+    }
+    *///?}
+
+    @Unique
+    private void visor$applyVrInputState() {
         if (VisorState.get().isNotActive()) {
             return;
         }
+        KeyboardInput input = (KeyboardInput) (Object) this;
 
-        this.jumping = this.jumping
-                && Minecraft.getInstance().screen == null
-                && !climbing.get();
+        boolean screenOpen = McVersionClientUtils.screen() != null;
+        if (screenOpen) {
+            McPlayerInput.setJumping(input, false);
+        }
 
-        this.shiftKeyDown = Minecraft.getInstance().screen == null
-                && (TaskRoomSneak.getInstance().getSneakTimer() > 0
+        McPlayerInput.setSneaking(input, !screenOpen
+                && (McPlayerInput.isSneaking(input)
                 || TaskRoomSneak.getInstance().isSneaking()
-                || this.shiftKeyDown);
+                || TaskVehicle.getInstance().isDismountRequested()));
 
         if (ClientContext.localPlayer.isMoving()) {
             var movement = ClientContext.localPlayer.getMovement();
-            this.leftImpulse = -movement.x;
-            this.forwardImpulse = movement.y;
+            McPlayerInput.setImpulses(input, -movement.x, movement.y);
         }
     }
 }

@@ -1,174 +1,90 @@
+// #!MC-VERSION:: 26.3+
 package org.vmstudio.visor.mixin.client.renderer;
 
-import com.google.common.collect.Sets;
-import com.llamalad7.mixinextras.sugar.Local;
-import com.llamalad7.mixinextras.sugar.Share;
-import com.llamalad7.mixinextras.sugar.ref.LocalRef;
+import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
+import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
+import com.mojang.renderpearl.api.GpuFormat;
+import com.mojang.blaze3d.framegraph.FramePass;
 import com.mojang.blaze3d.pipeline.RenderTarget;
-import com.mojang.blaze3d.vertex.PoseStack;
-import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
-import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
-import net.minecraft.client.renderer.blockentity.BlockEntityRenderDispatcher;
-import net.minecraft.client.renderer.entity.EntityRenderDispatcher;
-import net.minecraft.client.resources.model.ModelBakery;
-import net.minecraft.server.level.BlockDestructionProgress;
-import net.minecraft.world.entity.player.Player;
-import org.jetbrains.annotations.NotNull;
-import org.spongepowered.asm.mixin.injection.Redirect;
-import org.vmstudio.visor.api.client.player.pose.PlayerPoseType;
-import org.vmstudio.visor.api.common.HandType;
-import org.vmstudio.visor.api.common.utils.LoggerUtils;
-import org.vmstudio.visor.api.server.VRServerSettings;
+import com.mojang.blaze3d.pipeline.TextureTarget;
+import java.util.EnumMap;
+import org.vmstudio.visor.api.client.render.VRRenderPass;
+import org.vmstudio.visor.api.compatibility.mcversion.render.McFog;
+import org.vmstudio.visor.api.compatibility.mcversion.render.McRenderTarget;
 import org.vmstudio.visor.core.client.VisorState;
-import org.vmstudio.visor.extensions.client.render.GameRendererExtension;
-import org.vmstudio.visor.extensions.client.render.LevelRendererExtension;
-import org.vmstudio.visor.core.client.render.helpers.VREffectsHelper;
 import org.vmstudio.visor.core.client.render.VRRenderState;
-import net.minecraft.client.Camera;
-import net.minecraft.client.Minecraft;
-import net.minecraft.client.renderer.*;
-import net.minecraft.core.BlockPos;
-import net.minecraft.server.packs.resources.ResourceManager;
-import net.minecraft.server.packs.resources.ResourceManagerReloadListener;
-import net.minecraft.world.entity.Entity;
-import org.joml.Matrix4f;
+import org.vmstudio.visor.core.client.render.helpers.RenderEffectsHelper;
+import net.minecraft.client.renderer.LevelRenderer;
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.Mutable;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
-import org.spongepowered.asm.mixin.injection.At.Shift;
 import org.spongepowered.asm.mixin.injection.Inject;
-import org.spongepowered.asm.mixin.injection.ModifyArg;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+import com.mojang.blaze3d.systems.RenderSystem;
+import com.mojang.renderpearl.api.commands.RenderPass;
+import java.util.Optional;
+import java.util.OptionalDouble;
+import net.minecraft.client.renderer.LevelTargetBundle;
+import org.jetbrains.annotations.Nullable;
+import org.spongepowered.asm.mixin.injection.ModifyVariable;
+import org.vmstudio.visor.api.ModLoader;
+import org.vmstudio.visor.api.client.render.RenderPipelineStage;
 
-import org.vmstudio.visor.core.client.ClientContext;
-
-import java.util.*;
-
-import static org.vmstudio.visor.core.client.VisorClientImpl.MC;
-
-
+// common mixin
 @Mixin(value = LevelRenderer.class, priority = 999)
-public abstract class LevelRendererMixin implements ResourceManagerReloadListener, AutoCloseable, LevelRendererExtension {
+public abstract class LevelRendererMixin {
 
-    @Final
-    @Shadow
-    private Minecraft minecraft;
+    // ---- Shadow fields ----
+    @Shadow @Final @Mutable
+    private RenderTarget entityOutlineTarget;
+    @Shadow @Final
+    private LevelTargetBundle targets;
 
-
+    // ---- Unique fields ----
     @Unique
-    private Entity visor$renderedEntity;
-
+    private EnumMap<VRRenderPass, RenderTarget> visor$passOutlineTargets;
     @Unique
-    private RenderTarget visor$savedRenderTarget;
-
-    @Final
-    @Shadow
-    private Long2ObjectMap<SortedSet<BlockDestructionProgress>> destructionProgress;
-
-    @Final
-    @Shadow
-    private Int2ObjectMap<BlockDestructionProgress> destroyingBlocks;
-
+    private RenderTarget visor$vanillaOutlineTarget;
     @Unique
-    private Map<Long, Long> visor$damagedBlocksVr;
-
+    private @Nullable RenderPass visor$stagePass;
     @Unique
-    private Map<Long, BlockDestructionProgress> visor$damagedBlocksVrSave;
-
-    @Unique
-    private List<Runnable> visor$swingTasks;
+    private @Nullable RenderPass visor$closedLevelPass;
 
 
-    @Inject(method = "<init>", at = @At("RETURN"))
-    private void visor$initFields(Minecraft mc, EntityRenderDispatcher erd,
-                                  BlockEntityRenderDispatcher berd,
-                                  RenderBuffers rb, CallbackInfo ci) {
-        visor$damagedBlocksVr = Collections.synchronizedMap(new HashMap<>());
-        visor$damagedBlocksVrSave = Collections.synchronizedMap(new HashMap<>());
-        visor$swingTasks = Collections.synchronizedList(new ArrayList<>());
+    /* ***************** *\
+  //--------MIXINS--------\\
+    \* ***************** */
+
+    @WrapOperation(method = "render", require = 1,
+            at = @At(value = "INVOKE", target = "Lcom/mojang/blaze3d/framegraph/FramePass;executes(Ljava/lang/Runnable;)V"))
+    private void visor$maskHiddenArea(FramePass clearPass, Runnable clear, Operation<Void> original) {
+        if (VRRenderState.getPhase().isVanilla()) {
+            original.call(clearPass, clear);
+            return;
+        }
+        original.call(clearPass, (Runnable) () -> {
+            clear.run();
+            RenderEffectsHelper.maskHiddenArea();
+        });
     }
 
-    /* ****************** *\
-  //--------RENDERING--------\\
-    \* ****************** */
-
-    @Redirect(
-            method = "renderLevel(Lcom/mojang/blaze3d/vertex/PoseStack;FJZLnet/minecraft/client/Camera;Lnet/minecraft/client/renderer/GameRenderer;Lnet/minecraft/client/renderer/LightTexture;Lorg/joml/Matrix4f;)V",
-            at = @At(value = "INVOKE", target = "Lnet/minecraft/client/Camera;isDetached()Z")
-    )
-    private boolean visor$renderSpectatedVRSelfView(Camera camera) {
-        if (VRRenderState.isSpectatedVRView(camera.getEntity())) {
-            return true;
+    @WrapOperation(method = "addSkyPass*", require = 1,
+            at = @At(value = "INVOKE", target = "Lcom/mojang/blaze3d/framegraph/FramePass;executes(Ljava/lang/Runnable;)V"))
+    private void visor$maskHiddenAreaAfterSky(FramePass skyPass, Runnable sky, Operation<Void> original) {
+        if (VRRenderState.getPhase().isVanilla()) {
+            original.call(skyPass, sky);
+            return;
         }
-        return camera.isDetached();
-    }
-
-    @Inject(at = @At("HEAD"), method = "renderEntity")
-    public void visor$captureEntityRestore(CallbackInfo ci,
-                                              @Local(argsOnly = true) Entity entity,
-                                              @Share("capturedEntity") LocalRef<Entity> capturedEntity
-    ) {
-        if (VRRenderState.getPhase().isNotVanilla()
-                && entity == minecraft.getCameraEntity()) {
-            capturedEntity.set(entity);
-            ((GameRendererExtension) minecraft.gameRenderer)
-                    .visor$applyCachedCameraEntityPosition(entity);
-        }
-        this.visor$renderedEntity = entity;
-    }
-
-    @Inject(at = @At("TAIL"), method = "renderEntity")
-    public void visor$captureEntitySetup(CallbackInfo ci,
-                                  @Local(argsOnly = true) Entity entity,
-                                  @Share("capturedEntity") LocalRef<Entity> capturedEntity
-    ) {
-        if (capturedEntity.get() != null) {
-            ((GameRendererExtension) minecraft.gameRenderer)
-                    .visor$setupCameraEntityAsVRCamera();
-        }
-        this.visor$renderedEntity = null;
-    }
-
-
-
-    @Inject(at = @At(value = "INVOKE", target = "Lnet/minecraft/client/renderer/GameRenderer;getRenderDistance()F", shift = Shift.BEFORE),
-            method = "renderLevel(Lcom/mojang/blaze3d/vertex/PoseStack;FJZLnet/minecraft/client/Camera;Lnet/minecraft/client/renderer/GameRenderer;Lnet/minecraft/client/renderer/LightTexture;Lorg/joml/Matrix4f;)V ")
-    public void visor$stencil(PoseStack poseStack, float f, long l, boolean bl, Camera camera, GameRenderer gameRenderer,
-                             LightTexture lightTexture, Matrix4f matrix4f, CallbackInfo info
-    ) {
-        if (VRRenderState.getPhase().isNotVanilla()) {
-
-            VREffectsHelper.drawEyeStencil();
-        }
-    }
-
-
-    @ModifyArg(at = @At(value = "INVOKE", target = "Lnet/minecraft/util/Mth;floor(D)I", ordinal = 0), method = "renderSnowAndRain")
-    public double visor$rainAndSnowX(double x) {
-        if (VRRenderState.getRenderPass().isEye()) {
-            return ClientContext.localPlayer.getPoseData(PlayerPoseType.RENDER)
-                    .getHmd().getPosition().x();
-        }
-        return x;
-    }
-
-    @ModifyArg(at = @At(value = "INVOKE", target = "Lnet/minecraft/util/Mth;floor(D)I", ordinal = 1), method = "renderSnowAndRain")
-    public double visor$rainAndSnowY(double y) {
-        if (VRRenderState.getRenderPass().isEye()) {
-            return ClientContext.localPlayer.getPoseData(PlayerPoseType.RENDER)
-                    .getHmd().getPosition().y();
-        }
-        return y;
-    }
-
-    @ModifyArg(at = @At(value = "INVOKE", target = "Lnet/minecraft/util/Mth;floor(D)I", ordinal = 2), method = "renderSnowAndRain")
-    public double visor$rainAndSnowZ(double z) {
-        if (VRRenderState.getRenderPass().isEye()) {
-            return ClientContext.localPlayer.getPoseData(PlayerPoseType.RENDER).getHmd().getPosition().z();
-        }
-        return z;
+        original.call(skyPass, (Runnable) () -> {
+            sky.run();
+            McFog.State skyFog = McFog.save();
+            McFog.disable();
+            RenderEffectsHelper.maskHiddenArea();
+            McFog.restore(skyFog);
+        });
     }
 
 
@@ -178,198 +94,134 @@ public abstract class LevelRendererMixin implements ResourceManagerReloadListene
      * (like for FIRST_PERSON, THIRD_PERSON VR cameras
      * that use different resolution from initial)
      */
-    @Inject(method = {"initOutline", "initTransparency"}, at = @At("HEAD"))
-    private void visor$ensureVanillaPhase(CallbackInfo ci) {
-        if (VisorState.get().isActive() && VRRenderState.getPhase().isNotVanilla()) {
-            this.visor$savedRenderTarget = MC.mainRenderTarget;
-            MC.mainRenderTarget = VRRenderState.getVanillaTarget();
-        }
-    }
-    @Inject(method = {"initOutline", "initTransparency"}, at = @At("TAIL"))
-    private void visor$restoreAfterInit(CallbackInfo ci) {
-        if (this.visor$savedRenderTarget != null) {
-            MC.mainRenderTarget = this.visor$savedRenderTarget;
-            this.visor$savedRenderTarget = null;
-        }
-    }
-
-    /* **************** *\
-  //--------EVENTS--------\\
-    \* **************** */
-    @Inject(at = @At("TAIL"), method = "onResourceManagerReload")
-    public void visor$onResourceManagerReload(ResourceManager resourceManager, CallbackInfo ci) {
-        if (VisorState.get().isInitialized()) {
-            ClientContext.renderer.prepareReinit(
-                    "Resources Reload"
-            );
-        }
-    }
-    /* ************************* *\
-  //--------BETTER SWINGING--------\\
-    \* ************************* */
-
-    @Inject(at = @At("HEAD"), method = "removeProgress", cancellable = true)
-    private void visor$removeProgress(BlockDestructionProgress progress,
-                                      CallbackInfo ci
-    ) {
-        //fix of crash bcz of vr swinging
-        ci.cancel();
-        long blockPos = progress.getPos().asLong();
-        Set<BlockDestructionProgress> set = this.destructionProgress.get(blockPos);
-        if (set == null) return; //here it is
-        set.remove(progress);
-        if (set.isEmpty()) {
-            this.destructionProgress.remove(blockPos);
-        }
-
-    }
-
-    @Inject(at = @At("HEAD"), method = "renderLevel")
-    private void visor$betterSwinging(CallbackInfo ci) {
-        if (!VRServerSettings.isBetterSwinging()
-                || !VisorState.get().isActive()) {
+    // 1.21.2 imports one window-sized outline target into every pass, and its clear() leaves the viewport at that
+    // size for entities, particles, clouds and weather drawn after it, so each VR pass gets one sized like its target
+    @Inject(method = "render", at = @At("HEAD"))
+    private void visor$usePassOutlineTarget(CallbackInfo ci) {
+        if (VisorState.get().isNotActive() || VRRenderState.getPhase().isVanilla()) {
+            visor$restoreVanillaOutlineTarget();
             return;
         }
-
-        try {
-            List<Long> toRemove = new ArrayList<>();
-            destructionProgress.forEach((key, value) -> {
-                int stage = value.last().getProgress();
-                if (stage < 0 || stage >= ModelBakery.DESTROY_TYPES.size()) {
-                    toRemove.add(key);
-                }
-            });
-            toRemove.forEach(it -> {
-                destructionProgress.remove(it.longValue());
-                visor$damagedBlocksVr.remove(it);
-                visor$damagedBlocksVrSave.remove(it);
-            });
-            toRemove.clear();
-            for (Map.Entry<Long, Long> entry : visor$damagedBlocksVr.entrySet()) {
-                SortedSet<BlockDestructionProgress> set = destructionProgress.get(entry.getKey());
-                if (set == null) {
-                    toRemove.add(entry.getKey());
-                    continue;
-                }
-                BlockDestructionProgress d = visor$damagedBlocksVrSave.get(entry.getKey());
-                if (d == null) {
-                    toRemove.add(entry.getKey());
-                    continue;
-                }
-                if (!set.contains(d) || set.size() > 1) {
-                    toRemove.add(entry.getKey());
-                    continue;
-                }
-                //if anything happened with packet from server
-                if (entry.getValue() + (VRServerSettings.getSwingingRepairDelay() * 50)
-                        < System.currentTimeMillis()) {
-                    toRemove.add(entry.getKey());
-                }
-            }
-            toRemove.forEach(it -> {
-                destructionProgress.remove(it.longValue());
-                visor$damagedBlocksVr.remove(it);
-                visor$damagedBlocksVrSave.remove(it);
-            });
-        }catch(Throwable e){
-            LoggerUtils.printError(e);
+        RenderTarget passTarget = McRenderTarget.mainTarget();
+        if (passTarget == null || this.entityOutlineTarget == null) {
+            return;
         }
+        if (this.visor$vanillaOutlineTarget == null) {
+            this.visor$vanillaOutlineTarget = this.entityOutlineTarget;
+        }
+        if (this.visor$passOutlineTargets == null) {
+            this.visor$passOutlineTargets = new EnumMap<>(VRRenderPass.class);
+        }
+        int width = McRenderTarget.viewWidth(passTarget);
+        int height = McRenderTarget.viewHeight(passTarget);
+        VRRenderPass renderPass = VRRenderState.getRenderPass();
+        RenderTarget outline = this.visor$passOutlineTargets.get(renderPass);
+        if (outline == null) {
+            outline = new TextureTarget("visor_vr_outline", width, height, GpuFormat.RGBA8_UNORM, null);
+            McRenderTarget.setClearColor(outline, 0.0F, 0.0F, 0.0F, 0.0F);
+            this.visor$passOutlineTargets.put(renderPass, outline);
+        } else if (McRenderTarget.viewWidth(outline) != width || McRenderTarget.viewHeight(outline) != height) {
+            McRenderTarget.resize(outline, width, height);
+        }
+        this.entityOutlineTarget = outline;
     }
-    @Override
+
+    @ModifyVariable(method = "executeSolid", argsOnly = true, require = 1,
+            at = @At(value = "INVOKE", target = "Lnet/minecraft/client/renderer/chunk/ChunkSectionsToRender;renderGroup(Lnet/minecraft/client/renderer/chunk/ChunkSectionLayerGroup;Lcom/mojang/renderpearl/api/commands/RenderPass;Lcom/mojang/renderpearl/api/textures/GpuSampler;Lcom/mojang/renderpearl/api/textures/GpuTextureView;Z)V", shift = At.Shift.AFTER))
+    private RenderPass visor$afterSolidStage(RenderPass pass) {
+        this.visor$closedLevelPass = pass;
+        return visor$splitPassForStage(pass, RenderPipelineStage.AFTER_SOLID);
+    }
+
+    // Iris replaces the pass of the translucent level: no pass of Visor stays open past executeSolid
+    @Inject(method = "executeSolid", at = @At("TAIL"), require = 1)
+    private void visor$closeSolidStagePass(CallbackInfo ci) {
+        visor$closeStagePass();
+    }
+
+    @ModifyVariable(method = "executeClassicTransparency", argsOnly = true, require = 1, at = @At("HEAD"))
+    private RenderPass visor$goOnAfterSolidStage(RenderPass pass) {
+        if (pass != this.visor$closedLevelPass) {
+            return pass;
+        }
+        this.visor$closedLevelPass = null;
+        return visor$openStagePass(RenderPipelineStage.AFTER_SOLID);
+    }
+
+    @ModifyVariable(method = "executeClassicTransparency", argsOnly = true, require = 1,
+            at = @At(value = "INVOKE", target = "Lnet/minecraft/client/renderer/chunk/ChunkSectionsToRender;renderGroup(Lnet/minecraft/client/renderer/chunk/ChunkSectionLayerGroup;Lcom/mojang/renderpearl/api/commands/RenderPass;Lcom/mojang/renderpearl/api/textures/GpuSampler;Lcom/mojang/renderpearl/api/textures/GpuTextureView;Z)V", shift = At.Shift.AFTER))
+    private RenderPass visor$afterTranslucentStage(RenderPass pass) {
+        return visor$splitPassForStage(pass, RenderPipelineStage.AFTER_TRANSLUCENT);
+    }
+
+    @Inject(method = "executeClassicTransparency", at = @At("TAIL"), require = 1)
+    private void visor$closeClassicStagePass(CallbackInfo ci) {
+        visor$closeStagePass();
+    }
+
+    @Inject(method = "executeOit", at = @At("TAIL"), require = 1)
+    private void visor$afterOitTranslucentStage(CallbackInfo ci) {
+        ModLoader.get().fireLevelStage(RenderPipelineStage.AFTER_TRANSLUCENT);
+    }
+
+    @Inject(method = "render", at = @At("HEAD"))
+    private void visor$noStagePassLeftOpen(CallbackInfo ci) {
+        visor$closeStagePass();
+        this.visor$closedLevelPass = null;
+    }
+
     @Unique
-    public void visor$damageBlockProgress(@NotNull Player player,
-                                          @NotNull BlockPos blockPos,
-                                          int destroyStage
-    ) {
-        if (!VRServerSettings.isBetterSwinging()
-                || VisorState.get().isNotActive()) return;
-
-        if (destroyStage == -1) {
-            visor$damagedBlocksVr.remove(blockPos.asLong());
-            visor$damagedBlocksVrSave.remove(blockPos.asLong());
-            destructionProgress.remove(blockPos.asLong());
-            return;
-        }
-
-        if (destroyStage == -2) {
-            visor$damagedBlocksVr.remove(blockPos.asLong());
-            visor$damagedBlocksVrSave.remove(blockPos.asLong());
-            return;
-        }
-
-        final List<Integer> toRemove = new ArrayList<>();
-
-        destroyingBlocks.forEach((id, progress) -> {
-            if (progress.getPos().asLong() == blockPos.asLong()) {
-                toRemove.add(id);
-                destructionProgress.remove(progress.getPos().asLong());
-            }
-        });
-
-        toRemove.forEach(it -> destroyingBlocks.remove(it.intValue()));
-
-        BlockDestructionProgress progress = new BlockDestructionProgress(
-                player.getId(), blockPos
-        );
-        progress.setProgress(destroyStage);
-
-        SortedSet<BlockDestructionProgress> set =
-                destructionProgress.computeIfAbsent(
-                        progress.getPos().asLong(), (p_234254_) -> {
-                            return Sets.newTreeSet();
-                        }
-                );
-
-        set.clear();
-        set.add(progress);
-
-        visor$damagedBlocksVr.put(blockPos.asLong(), System.currentTimeMillis());
-        visor$damagedBlocksVrSave.put(blockPos.asLong(), progress);
+    private RenderPass visor$splitPassForStage(RenderPass pass, RenderPipelineStage stage) {
+        pass.close();
+        visor$closeStagePass();
+        ModLoader.get().fireLevelStage(stage);
+        return visor$openStagePass(stage);
     }
 
-    @Inject(at = @At("HEAD"), method = "levelEvent")
-    public void visor$hapticOnSound(int i, BlockPos blockPos, int j, CallbackInfo ci) {
-        if(VisorState.get().isNotActive()) return;
-
-        if (this.minecraft.player != null
-                && this.minecraft.player.isAlive()
-                && this.minecraft.player.blockPosition().distSqr(blockPos) < 25.0D) {
-            switch (i) {
-                case 1019,      // ZOMBIE_ATTACK_WOODEN_DOOR
-                     1020,   // ZOMBIE_ATTACK_IRON_DOOR
-                     1021    // ZOMBIE_BREAK_WOODEN_DOOR
-                        -> {
-                    ClientContext.inputManager
-                            .triggerHapticPulse(HandType.MAIN, 0.0075f);
-                    ClientContext.inputManager
-                            .triggerHapticPulse(HandType.OFFHAND, 0.0075f);
-                }
-                case 1030 ->    // ANVIL_USE
-                        ClientContext.inputManager
-                                .triggerHapticPulse(HandType.MAIN, 0.005f);
-                case 1031 -> {  // ANVIL_LAND
-                    ClientContext.inputManager
-                            .triggerHapticPulse(HandType.MAIN, 0.0125f);
-                    ClientContext.inputManager
-                            .triggerHapticPulse(HandType.OFFHAND, 0.0125f);
-                }
-            }
-        }
-    }
-
-    /* ************************ *\
-  //--------PUBLIC METHODS--------\\
-    \* ************************ */
-
-
-    @Override
     @Unique
-    public Entity visor$getRenderedEntity() {
-        return this.visor$renderedEntity;
+    private RenderPass visor$openStagePass(RenderPipelineStage stage) {
+        RenderTarget mainTarget = this.targets.main.get();
+        RenderPass next = RenderSystem.getDevice().createCommandEncoder().createRenderPass(
+                () -> "Main after " + stage.name(), mainTarget.getColorTextureView(), Optional.empty(),
+                mainTarget.getDepthTextureView(), OptionalDouble.empty());
+        RenderSystem.bindDefaultUniforms(next);
+        this.visor$stagePass = next;
+        return next;
     }
 
+    @Unique
+    private void visor$closeStagePass() {
+        if (this.visor$stagePass != null) {
+            this.visor$stagePass.close();
+            this.visor$stagePass = null;
+        }
+    }
 
-    /* ************************* *\
-  //--------UTILITY METHODS--------\\
-    \* ************************* */
+    @Inject(method = "resize", at = @At("HEAD"))
+    private void visor$resizeVanillaOutlineTarget(CallbackInfo ci) {
+        visor$restoreVanillaOutlineTarget();
+    }
+
+    // AutoCloseable.close has no SRG name
+    @Inject(method = "close", at = @At("HEAD"), remap = false)
+    private void visor$releaseOutlineTargetsOnClose(CallbackInfo ci) {
+        visor$releasePassOutlineTargets();
+    }
+
+    @Unique
+    private void visor$releasePassOutlineTargets() {
+        visor$restoreVanillaOutlineTarget();
+        if (this.visor$passOutlineTargets != null) {
+            this.visor$passOutlineTargets.values().forEach(RenderTarget::destroyBuffers);
+            this.visor$passOutlineTargets.clear();
+        }
+    }
+
+    @Unique
+    private void visor$restoreVanillaOutlineTarget() {
+        if (this.visor$vanillaOutlineTarget != null) {
+            this.entityOutlineTarget = this.visor$vanillaOutlineTarget;
+            this.visor$vanillaOutlineTarget = null;
+        }
+    }
 }

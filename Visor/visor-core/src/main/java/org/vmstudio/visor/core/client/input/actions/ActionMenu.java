@@ -1,16 +1,16 @@
 package org.vmstudio.visor.core.client.input.actions;
 
+import com.mojang.blaze3d.platform.InputConstants;
 import me.phoenixra.atumvr.api.input.profile.VRInteractionProfileType;
-import me.phoenixra.atumvr.api.input.profile.types.OculusTouchProfile;
-import me.phoenixra.atumvr.api.input.profile.types.ValveIndexProfile;
+import me.phoenixra.atumvr.api.input.profile.types.*;
 import org.vmstudio.visor.api.client.input.InputHelper;
 import org.vmstudio.visor.api.client.input.action.ActionBinding;
 import org.vmstudio.visor.api.client.input.action.VRActionSet;
 import org.vmstudio.visor.api.client.input.action.framework.VRActionButton;
 import org.vmstudio.visor.core.client.gui.screens.VRPauseMenuScreen;
+import org.vmstudio.visor.api.compatibility.mcversion.McVersionClientUtils;
 import net.minecraft.client.gui.screens.TitleScreen;
 import org.jetbrains.annotations.NotNull;
-import org.lwjgl.glfw.GLFW;
 
 import java.util.Map;
 
@@ -27,15 +27,15 @@ public class ActionMenu extends VRActionButton {
 
     @Override
     protected void onPress() {
-        if (MC.screen != null) {
-            InputHelper.pressKey(GLFW.GLFW_KEY_ESCAPE);
-            InputHelper.releaseKey(GLFW.GLFW_KEY_ESCAPE);
+        if (McVersionClientUtils.screen() != null) {
+            InputHelper.pressKey(InputConstants.KEY_ESCAPE);
+            InputHelper.releaseKey(InputConstants.KEY_ESCAPE);
         } else {
             if(MC.level == null){
-                MC.setScreen(new TitleScreen());
+                McVersionClientUtils.setScreen(new TitleScreen());
                 return;
             }
-            MC.setScreen(new VRPauseMenuScreen());
+            McVersionClientUtils.setScreen(new VRPauseMenuScreen());
         }
     }
 
@@ -62,6 +62,31 @@ public class ActionMenu extends VRActionButton {
                 new ActionBinding(
                         OculusTouchProfile.BUTTON_Y,
                         OculusTouchProfile.BUTTON_B
+                ),
+                VRInteractionProfileType.VIVE,
+                new ActionBinding(
+                        ViveProfile.BUTTON_MENU_LEFT,
+                        ViveProfile.BUTTON_MENU_RIGHT
+                ),
+                VRInteractionProfileType.VIVE_COSMOS,
+                new ActionBinding(
+                        ViveCosmosProfile.BUTTON_Y,
+                        ViveCosmosProfile.BUTTON_B
+                ),
+                VRInteractionProfileType.HP_MIXED_REALITY,
+                new ActionBinding(
+                        HpMixedRealityProfile.BUTTON_Y,
+                        HpMixedRealityProfile.BUTTON_B
+                ),
+                VRInteractionProfileType.WINDOWS_MOTION,
+                new ActionBinding(
+                        WindowsMotionProfile.BUTTON_MENU_LEFT,
+                        WindowsMotionProfile.BUTTON_MENU_RIGHT
+                ),
+                VRInteractionProfileType.STEAM_FRAME,
+                new ActionBinding(
+                        SteamFrameProfile.BUTTON_VIEW,
+                        SteamFrameProfile.BUTTON_MENU
                 )
         );
     }

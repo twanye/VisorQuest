@@ -1,9 +1,10 @@
 package org.vmstudio.visor.core.client.gui.screens.settings.categories.controls;
 
+import org.vmstudio.visor.api.compatibility.mcversion.gui.McGuiUtils;
 import me.phoenixra.atumvr.api.input.action.VRActionIdentifier;
 import me.phoenixra.atumvr.api.input.profile.VRInteractionProfileType;
 import me.phoenixra.atumvr.api.misc.color.AtumColor;
-import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.Renderable;
 import net.minecraft.client.gui.components.events.GuiEventListener;
 import net.minecraft.client.gui.narration.NarratableEntry;
@@ -23,7 +24,7 @@ import org.vmstudio.visor.api.client.input.action.VRActionSet;
 import org.vmstudio.visor.core.client.gui.overlays.builtin.settings.SettingsTextures;
 import org.vmstudio.visor.core.client.gui.screens.settings.OptionWidgetEntry;
 import org.vmstudio.visor.core.client.gui.screens.settings.VROptionsSet;
-import org.vmstudio.visor.core.client.settings.VRClientSettings;
+import org.vmstudio.visor.api.client.settings.VRClientSettings;
 import org.vmstudio.visor.core.client.settings.VROptionWidgetType;
 
 import java.util.ArrayList;
@@ -185,7 +186,7 @@ public class VRSettingsConfirmCrossBinding extends VROptionsSet {
     }
 
     @Override
-    public void onPreRender(@NotNull GuiGraphics guiGraphics,
+    public void onPreRender(@NotNull GuiGraphicsExtractor guiGraphics,
                             int mouseX, int mouseY,
                             float partialTicks) {
         var sh = getScreen().getScaleHelper();
@@ -197,7 +198,7 @@ public class VRSettingsConfirmCrossBinding extends VROptionsSet {
     }
 
     @Override
-    public void onPostRender(@NotNull GuiGraphics guiGraphics,
+    public void onPostRender(@NotNull GuiGraphicsExtractor guiGraphics,
                              int mouseX, int mouseY,
                              float partialTicks) {
         var sh = getScreen().getScaleHelper();
@@ -390,7 +391,7 @@ public class VRSettingsConfirmCrossBinding extends VROptionsSet {
 
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double delta) {
-        destinationList.mouseScrolled(mouseX, mouseY, delta);
+        McGuiUtils.mouseScrolled(destinationList, mouseX, mouseY, delta);
         return super.mouseScrolled(mouseX, mouseY, delta);
     }
 }

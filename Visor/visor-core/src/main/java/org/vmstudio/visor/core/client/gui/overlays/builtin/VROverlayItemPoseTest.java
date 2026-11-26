@@ -1,7 +1,7 @@
 package org.vmstudio.visor.core.client.gui.overlays.builtin;
 
 import lombok.Getter;
-import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.Tooltip;
 import net.minecraft.network.chat.Component;
 import org.jetbrains.annotations.NotNull;
@@ -15,6 +15,7 @@ import org.vmstudio.visor.api.client.gui.widgets.info.WidgetInfoButtonImaged;
 import org.vmstudio.visor.api.client.gui.widgets.info.WidgetInfoEditBox;
 import org.vmstudio.visor.api.common.addon.VisorAddon;
 import org.vmstudio.visor.core.client.gui.overlays.builtin.settings.VROverlaySettings;
+import org.vmstudio.visor.api.compatibility.mcversion.McVersionClientUtils;
 
 import java.util.List;
 
@@ -34,7 +35,7 @@ public class VROverlayItemPoseTest extends VROverlayScreen {
 
 
     @Override
-    protected void onRender(GuiGraphics guiGraphics,
+    protected void onRender(GuiGraphicsExtractor guiGraphics,
                             int mouseX, int mouseY,
                             float partialTicks) {
     }
@@ -55,15 +56,10 @@ public class VROverlayItemPoseTest extends VROverlayScreen {
         return false;
     }
 
-    @Override
-    public boolean supportsRetainedTexture() {
-        return true;
-    }
-
 
     @Override
     protected boolean updateVisibility() {
-        if(MC.screen != null){
+        if(McVersionClientUtils.screen() != null){
             return false;
         }
         return MC.player != null;

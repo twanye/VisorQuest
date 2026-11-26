@@ -1,10 +1,14 @@
 package org.vmstudio.visor.core.client.gui;
 
+import org.vmstudio.visor.api.compatibility.mcversion.render.McGlState;
+import org.vmstudio.visor.api.compatibility.mcversion.render.McProjection;
+import org.vmstudio.visor.api.compatibility.mcversion.render.McModelViewStack;
+import org.vmstudio.visor.api.compatibility.mcversion.render.McRenderTarget;
+import org.vmstudio.visor.api.compatibility.mcversion.gui.McGuiRenderer;
+import org.vmstudio.visor.api.compatibility.mcversion.render.McRenderUtils;
+
 import com.mojang.blaze3d.pipeline.RenderTarget;
-import com.mojang.blaze3d.platform.GlStateManager;
-import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.PoseStack;
-import com.mojang.blaze3d.vertex.VertexSorting;
 import lombok.Getter;
 import lombok.Setter;
 import me.phoenixra.atumvr.api.utils.GLUtils;
@@ -25,17 +29,14 @@ import org.vmstudio.visor.extensions.client.render.GameRendererExtension;
 import org.vmstudio.visor.core.client.render.VRRenderState;
 import org.vmstudio.visor.core.client.render.helpers.RenderGuiHelper;
 import org.vmstudio.visor.core.client.render.helpers.RenderPoseHelper;
-import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.GuiGraphics;
+import org.vmstudio.visor.core.client.render.helpers.RenderStateHelper;
 import net.minecraft.util.profiling.ProfilerFiller;
 import org.jetbrains.annotations.NotNull;
 import org.joml.Matrix4f;
 import org.vmstudio.visor.api.client.gui.overlays.options.types.*;
 
 import java.util.ArrayList;
-import java.util.IdentityHashMap;
 import java.util.List;
-import java.util.Map;
 
 import static org.vmstudio.visor.core.client.VisorClientImpl.MC;
 
@@ -54,16 +55,12 @@ public class VROverlayManagerImpl implements VROverlayManager {
 
     private final List<VROverlay> preparedDepthOverlays = new ArrayList<>();
     private final List<VROverlay> preparedHudOverlays = new ArrayList<>();
-    private final Map<VROverlay, String> overlayProfilerLabels = new IdentityHashMap<>();
-    private final Matrix4f overlayProjection = new Matrix4f();
 
     public void tick(){
         for(VROverlay overlay : overlaysRegistry.getSortedComponents()){
             if(!overlay.isEnabled()) continue;
             overlay.tick();
         }
-
-
     }
 
     public void prepareOverlaysAndCursor(float partialTicks){
@@ -88,7 +85,6 @@ public class VROverlayManagerImpl implements VROverlayManager {
             //ready to be rendered
             preparedOverlays.add(overlay);
 
-            // Split into depth and HUD layer lists
             if (overlay.isHudLayer()) {
                 preparedHudOverlays.add(overlay);
             } else {
@@ -99,92 +95,84 @@ public class VROverlayManagerImpl implements VROverlayManager {
     }
 
     public void renderOverlayTextures(ProfilerFiller profiler,
-                                      GuiGraphics guiGraphics,
                                       float partialTicks) {
         if(preparedOverlays.isEmpty()){
             return;
         }
         // --- Setup ---
+        Matrix4f projection = new Matrix4f();
         int prevOverlayWidth = -1;
         int prevOverlayHeight = -1;
 
-        RenderSystem.backupProjectionMatrix();
+        McProjection.State savedProjection = McProjection.save();
 
-        PoseStack posestack = RenderSystem.getModelViewStack();
-        posestack.pushPose();
-        posestack.setIdentity();
-        posestack.translate(0.0D, 0.0D, -11000.0D);
-        RenderSystem.applyModelViewMatrix();
-        RenderSystem.blendFuncSeparate(
-                GlStateManager.SourceFactor.SRC_ALPHA,
-                GlStateManager.DestFactor.ONE_MINUS_SRC_ALPHA,
-                GlStateManager.SourceFactor.ONE,
-                GlStateManager.DestFactor.ONE
+        McModelViewStack.push();
+        McModelViewStack.identity();
+        McModelViewStack.translate(0.0F, 0.0F, -11000.0F);
+        McModelViewStack.apply();
+        McGlState.blendFuncSeparate(
+                McGlState.Blend.SRC_ALPHA,
+                McGlState.Blend.ONE_MINUS_SRC_ALPHA,
+                McGlState.Blend.ONE,
+                McGlState.Blend.ONE
         );
 
-        // --- Render  ---
-        for(var overlay : preparedOverlays){
-            if (overlay.supportsRetainedTexture() && !overlay.isTextureDirty()) {
-                continue;
-            }
-            RenderTarget target = overlay.getRenderTarget();
-            if(target == null){
-                //shouldn't happen at all
-                throw new RuntimeException("Tried to render overlay quad with null renderTarget: "+overlay.getId());
-            }
-            profiler.push(overlayProfilerLabels.computeIfAbsent(
-                    overlay,
-                    value -> "VROverlay Texture: " + value.getId()
-            ));
+        try {
+            // --- Render  ---
+            for(var overlay : preparedOverlays){
+                RenderTarget target = overlay.getRenderTarget();
+                if(target == null){
+                    //shouldn't happen at all
+                    throw new RuntimeException("Tried to render overlay quad with null renderTarget: "+overlay.getId());
+                }
+                profiler.push("VROverlay Texture: " + overlay.getId());
 
-            if(overlay instanceof VROverlayScreen overlayScreen) {
-                //apply clean render target
-                MC.mainRenderTarget = target;
-                target.clear(Minecraft.ON_OSX);
-                target.bindWrite(true);
+                if(overlay instanceof VROverlayScreen overlayScreen) {
+                    //apply clean render target
+                    McRenderTarget.setMainTarget(target);
+                    McRenderTarget.clear(target);
+                    McRenderTarget.bindWrite(target);
 
-                //setup projection if changed
-                if(prevOverlayWidth != overlayScreen.width
-                        || prevOverlayHeight != overlayScreen.height) {
-                    overlayProjection.setOrtho(
-                            0,
-                            overlayScreen.width, overlayScreen.height,
-                            0,
-                            1000.0F, 21000.0F
-                    );
-                    RenderSystem.setProjectionMatrix(overlayProjection, VertexSorting.ORTHOGRAPHIC_Z);
-                    prevOverlayWidth = overlayScreen.width;
-                    prevOverlayHeight = overlayScreen.height;
+                    //setup projection if changed
+                    if(prevOverlayWidth != overlayScreen.width
+                            || prevOverlayHeight != overlayScreen.height) {
+                        projection.setOrtho(
+                                0,
+                                overlayScreen.width, overlayScreen.height,
+                                0,
+                                1000.0F, 21000.0F
+                        );
+                        McProjection.setOrthographic(projection);
+                        prevOverlayWidth = overlayScreen.width;
+                        prevOverlayHeight = overlayScreen.height;
+                    }
+
+                    //render overlay texture, each overlay is its own GUI frame
+                    overlayScreen.renderToTarget(
+                            McGuiRenderer.begin(overlayScreen.getMouseX(), overlayScreen.getMouseY()), partialTicks);
+
+                }else if(overlay instanceof VROverlayFrameBuffer overlayFrameBuffer){
+                    // rendering is fully handled by VROverlayFrameBuffer,
+                    // so, just render() is called,
+                    // and let it do the rest
+                    overlayFrameBuffer.render(partialTicks);
+                }else{
+                    throw new RuntimeException("Tried to render overlay of unsupported abstract class: "+overlay.getId());
                 }
 
-                //render overlay texture
-                overlayScreen.renderWithTooltip(
-                        guiGraphics,
-                        overlayScreen.getMouseX(),
-                        overlayScreen.getMouseY(),
-                        partialTicks
-                );
-                guiGraphics.flush();
-
-            }else if(overlay instanceof VROverlayFrameBuffer overlayFrameBuffer){
-                // rendering is fully handled by VROverlayFrameBuffer,
-                // so, just render() is called,
-                // and let it do the rest
-                overlayFrameBuffer.render(partialTicks);
-            }else{
-                throw new RuntimeException("Tried to render overlay of unsupported abstract class: "+overlay.getId());
+                profiler.pop();
+                //overlays may render screens that are outside of VR scope
+                //therefore to not cause crash because of some silly UI mods,
+                //we should drain these GL errors instead
+                RenderStateHelper.drainExternalGLErrors("VROverlay texture " + overlay.getId());
+                McRenderUtils.endRenderPass();
             }
 
-            profiler.pop();
-            overlay.clearTextureDirty();
-            GLUtils.checkGLError("post VROverlay texture");
+        } finally {
+            // --- Restore ---
+            McProjection.restore(savedProjection);
+            McModelViewStack.pop();
         }
-
-        // --- Restore ---
-        RenderSystem.restoreProjectionMatrix();
-
-        posestack.popPose();
-
     }
 
 
@@ -195,48 +183,12 @@ public class VROverlayManagerImpl implements VROverlayManager {
      */
     public void renderDepthOverlays(float partialTicks,
                                     PoseStack poseStack) {
-        if (preparedDepthOverlays.isEmpty()) {
-            return;
-        }
-
-        poseStack.pushPose();
-        poseStack.setIdentity();
-        RenderPoseHelper.applyCameraOrientation(
-                VRRenderState.getRenderPass(),
-                poseStack
+        renderOverlayQuads(
+                preparedDepthOverlays,
+                partialTicks, poseStack,
+                false,
+                "depth"
         );
-
-        ((GameRendererExtension) MC.gameRenderer).visor$resetProjectionMatrix(partialTicks);
-        GLUtils.checkGLError("before depth overlays");
-
-        for (VROverlay overlay : preparedDepthOverlays) {
-            if (!overlay.isVisible()) {
-                continue;
-            }
-            var target = overlay.getRenderTarget();
-            if (target == null) {
-                throw new RuntimeException("Tried to render overlay quad with null renderTarget: " + overlay.getId());
-            }
-
-            boolean drawDragHandle = overlay.supportsDragging() &&
-                    (overlay.isBeingDragged() || overlay.isBeingResized() ||
-                            ((ClientContext.cursorHandler.getFocusedOverlay(HandType.MAIN,true) == overlay
-                                    || ClientContext.cursorHandler.getFocusedOverlay(HandType.OFFHAND,true) == overlay)));
-
-            RenderGuiHelper.renderOverlayQuad(
-                    overlay,
-                    poseStack,
-                    overlay.getPose().getPosition(),
-                    overlay.getPose().getRotation(),
-                    false, // depthAlways = false, use GL_LEQUAL
-                    overlay.supportsLight(),
-                    drawDragHandle,
-                    overlay.getPose().getScale()
-            );
-            GLUtils.checkGLError("post depth VROverlay quad");
-        }
-
-        poseStack.popPose();
     }
 
     /**
@@ -245,7 +197,17 @@ public class VROverlayManagerImpl implements VROverlayManager {
      */
     public void renderHudOverlays(float partialTicks,
                                   PoseStack poseStack) {
-        if (preparedHudOverlays.isEmpty()) {
+        renderOverlayQuads(
+                preparedHudOverlays,
+                partialTicks, poseStack,
+                true,
+                "hud"
+        );
+    }
+
+    private void renderOverlayQuads(List<VROverlay> overlays, float partialTicks, PoseStack poseStack,
+                                    boolean depthAlways, String debugName) {
+        if (overlays.isEmpty()) {
             return;
         }
 
@@ -257,9 +219,9 @@ public class VROverlayManagerImpl implements VROverlayManager {
         );
 
         ((GameRendererExtension) MC.gameRenderer).visor$resetProjectionMatrix(partialTicks);
-        GLUtils.checkGLError("before hud overlays");
+        GLUtils.checkGLError("before " + debugName + " overlays");
 
-        for (VROverlay overlay : preparedHudOverlays) {
+        for (VROverlay overlay : overlays) {
             if (!overlay.isVisible()) {
                 continue;
             }
@@ -272,18 +234,18 @@ public class VROverlayManagerImpl implements VROverlayManager {
                     (overlay.isBeingDragged() || overlay.isBeingResized() ||
                             ((ClientContext.cursorHandler.getFocusedOverlay(HandType.MAIN,true) == overlay
                                     || ClientContext.cursorHandler.getFocusedOverlay(HandType.OFFHAND,true) == overlay)));
+
             RenderGuiHelper.renderOverlayQuad(
                     overlay,
                     poseStack,
                     overlay.getPose().getPosition(),
                     overlay.getPose().getRotation(),
-                    true, // depthAlways = true, use GL_ALWAYS
+                    depthAlways,
                     overlay.supportsLight(),
                     drawDragHandle,
                     overlay.getPose().getScale()
             );
-
-            GLUtils.checkGLError("post hud VROverlay quad");
+            GLUtils.checkGLError("post " + debugName + " VROverlay quad: " + overlay.getId());
         }
 
         poseStack.popPose();
@@ -295,7 +257,6 @@ public class VROverlayManagerImpl implements VROverlayManager {
         return overlaysRegistry.getComponent(id);
     }
 
-
     @Override
     public @NotNull OverlayConfigAccessor getOverlayConfigAccessor() {
         return ClientContext.settingsManager.getOverlayConfigsAccessor();
@@ -303,23 +264,21 @@ public class VROverlayManagerImpl implements VROverlayManager {
 
     @Override
     public @NotNull OptionsScreen<?> getOptionsScreenFor(@NotNull OverlayOptionGroup<?> category) {
-        if(category instanceof OverlayOptionsMisc type){
+        if (category instanceof OverlayOptionsMisc type){
             return new OptionsScreenMisc(type);
-        }
-        else if(category instanceof OverlayOptionsPose type){
+        } else if(category instanceof OverlayOptionsPose type){
             return new OptionsScreenPose(type);
-        }
-        else if(category instanceof OverlayOptionsIdentity type){
+        } else if(category instanceof OverlayOptionsIdentity type){
             return new OptionsScreenIdentity(type);
-        }
-        else if(category instanceof OverlayOptionsGeneral type){
+        } else if(category instanceof OverlayOptionsGeneral type){
             return new OptionsScreenGeneral(type);
-        }
-        else if(category instanceof OverlayOptionsScreenRegion type){
+        } else if(category instanceof OverlayOptionsScreenRegion type){
             return new OptionsScreenRegion(type);
-        }else if(category instanceof OverlayOptionsVisibility type){
+        } else if(category instanceof OverlayOptionsVisibility type){
             return new OptionsScreenVisibility(type);
         }
-        return null;
+        throw new IllegalArgumentException("No built-in options screen for option group '" + category.getId()
+                        + "' (" + category.getClass().getName() + ")"
+                        + " of overlay '" + category.getOwner().getId() + "'.");
     }
 }

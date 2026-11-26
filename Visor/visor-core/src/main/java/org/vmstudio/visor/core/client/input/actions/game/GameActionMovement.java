@@ -2,16 +2,17 @@ package org.vmstudio.visor.core.client.input.actions.game;
 
 import me.phoenixra.atumvr.core.input.profile.XRInteractionProfile;
 import me.phoenixra.atumvr.api.input.profile.VRInteractionProfileType;
-import me.phoenixra.atumvr.api.input.profile.types.OculusTouchProfile;
-import me.phoenixra.atumvr.api.input.profile.types.ValveIndexProfile;
+import me.phoenixra.atumvr.api.input.profile.types.*;
 import org.vmstudio.visor.api.client.ClientFeature;
 import org.vmstudio.visor.api.client.input.action.ActionBinding;
 import org.vmstudio.visor.api.client.input.action.VRActionSet;
 import org.vmstudio.visor.api.client.input.action.framework.VRActionVec2;
 import org.vmstudio.visor.api.common.HandType;
 import org.vmstudio.visor.core.client.ClientContext;
-import org.vmstudio.visor.core.client.settings.VRClientSettings;
-import org.vmstudio.visor.core.client.settings.options.enums.MovementMode;
+import org.vmstudio.visor.api.client.settings.VRClientSettings;
+import org.vmstudio.visor.api.client.settings.enums.MovementMode;
+import org.vmstudio.visor.core.client.input.TreadmillInput;
+import org.vmstudio.visor.core.client.input.redirect.VRInputRedirectHandler;
 import org.vmstudio.visor.core.client.tasks.types.movement.TaskTeleport;
 import org.vmstudio.visor.core.client.utils.ClientUtils;
 import net.minecraft.util.Mth;
@@ -25,11 +26,14 @@ import static org.vmstudio.visor.core.client.VisorClientImpl.MC;
 public class GameActionMovement extends VRActionVec2 {
     public static final String ID = "movement";
 
+    private static final float MIN_JOYSTICK_THRESHOLD = 0.5f;
 
-
+    private static final float ANGLE_THRESHOLD = Mth.PI / 8F;
 
     private boolean wasMovement;
     private boolean wasAutoSprinting;
+
+    private final Vector2f cachedTreadmillMove = new Vector2f();
 
     private static HandType handType = HandType.OFFHAND;
 
@@ -41,7 +45,6 @@ public class GameActionMovement extends VRActionVec2 {
     public void preTick() {
         super.preTick();
 
-
         if(ClientContext.cursorHandler.isHandFocused(handType)
                 || ClientContext.visor.isFeatureDisabled(ClientFeature.INPUT_MOVEMENT)){
             onClear();
@@ -51,6 +54,12 @@ public class GameActionMovement extends VRActionVec2 {
         Vector2f rawMove = getState();
 
         Vector2f movement = ClientContext.localPlayer.getMovement();
+
+        if(VRInputRedirectHandler.INSTANCE.handle(MC.player, rawMove)){
+            movement.zero();
+            resetMovementState();
+            return;
+        }
 
         if(VRClientSettings.getMoveMode(MC.player) == MovementMode.TELEPORT){
             resetMovementState();
@@ -63,15 +72,20 @@ public class GameActionMovement extends VRActionVec2 {
         }
 
 
+        Vector2f treadmillMove = TreadmillInput.pollMovement(cachedTreadmillMove);
+
         boolean climbing = ClientContext.localPlayer.isClimbing();
-        boolean moving = ClientContext.localPlayer.isMoving();
+        boolean moving;
         float forward = 0F;
-        if (/*!KeyboardHandler.SHOWING
-                && */!climbing) {
+        if (!climbing) {
             movement.zero();
 
-            movement.x = applyDeadzone(rawMove.x, 0.05F);
-            movement.y = applyDeadzone(rawMove.y, 0.05F);
+            if (treadmillMove != null) {
+                movement.set(treadmillMove);
+            } else {
+                movement.x = applyDeadzone(rawMove.x, 0.05F);
+                movement.y = applyDeadzone(rawMove.y, 0.05F);
+            }
 
             moving = (
                     movement.x != 0.0F || movement.y != 0.0F
@@ -79,27 +93,21 @@ public class GameActionMovement extends VRActionVec2 {
 
             forward = movement.y;
 
-            var digital = toDigital(movement, 0.5f);
+            var digital = toDigital(movement);
 
 
             if (moving) {
-                ClientUtils.updateKeyMappingState(
-                        MC.options.keyUp, digital.y > 0
-                );
-                ClientUtils.updateKeyMappingState(
-                        MC.options.keyDown, digital.y < 0
-                );
-                ClientUtils.updateKeyMappingState(
-                        MC.options.keyRight, digital.x > 0
-                );
-                ClientUtils.updateKeyMappingState(
-                        MC.options.keyLeft, digital.x < 0
-                );
+                ClientUtils.updateKeyMappingState(MC.options.keyUp, digital.y > 0);
+                ClientUtils.updateKeyMappingState(MC.options.keyDown, digital.y < 0);
+                ClientUtils.updateKeyMappingState(MC.options.keyRight, digital.x > 0);
+                ClientUtils.updateKeyMappingState(MC.options.keyLeft, digital.x < 0);
 
-                if (!MC.player.isMovingSlowly()) {
+                if (VRClientSettings.isAutoSprint() && !MC.player.isMovingSlowly()) {
                     if (forward >= VRClientSettings.getSprintThreshold()) {
+                        if (!MC.player.isSprinting()) {
+                            this.wasAutoSprinting = true;
+                        }
                         MC.player.setSprinting(true);
-                        this.wasAutoSprinting = true;
                         movement.y = 1.0F;
                     } else if (movement.y > 0.0F) {
                         movement.y /= VRClientSettings.getSprintThreshold();
@@ -159,6 +167,8 @@ public class GameActionMovement extends VRActionVec2 {
 
     @Override
     protected void onClear() {
+        VRInputRedirectHandler.INSTANCE.stop();
+
         Vector2f input = ClientContext.localPlayer.getMovement();
 
         input.x = 0;
@@ -179,18 +189,39 @@ public class GameActionMovement extends VRActionVec2 {
                 new ActionBinding(
                         OculusTouchProfile.VEC2_THUMBSTICK_LEFT,
                         OculusTouchProfile.VEC2_THUMBSTICK_RIGHT
+                ),
+                VRInteractionProfileType.VIVE,
+                new ActionBinding(
+                        ViveProfile.VEC2_TRACKPAD_LEFT,
+                        ViveProfile.VEC2_TRACKPAD_RIGHT
+                ),
+                VRInteractionProfileType.VIVE_COSMOS,
+                new ActionBinding(
+                        ViveCosmosProfile.VEC2_THUMBSTICK_LEFT,
+                        ViveCosmosProfile.VEC2_THUMBSTICK_RIGHT
+                ),
+                VRInteractionProfileType.HP_MIXED_REALITY,
+                new ActionBinding(
+                        HpMixedRealityProfile.VEC2_THUMBSTICK_LEFT,
+                        HpMixedRealityProfile.VEC2_THUMBSTICK_RIGHT
+                ),
+                VRInteractionProfileType.WINDOWS_MOTION,
+                new ActionBinding(
+                        WindowsMotionProfile.VEC2_THUMBSTICK_LEFT,
+                        WindowsMotionProfile.VEC2_THUMBSTICK_RIGHT
+                ),
+                VRInteractionProfileType.STEAM_FRAME,
+                new ActionBinding(
+                        SteamFrameProfile.VEC2_THUMBSTICK_LEFT,
+                        SteamFrameProfile.VEC2_THUMBSTICK_RIGHT
                 )
         );
     }
 
 
     private float applyDeadzone(float axis, float deadzone) {
-        if (Math.abs(axis) > deadzone) {
-            float scalar = 1.0F / (1.0F - deadzone);
-            return (Math.abs(axis) - deadzone) * scalar * Math.signum(axis);
-        } else {
-            return 0F;
-        }
+        float strength = Math.max(Math.abs(axis) - deadzone, 0F) / (1F - deadzone);
+        return Math.copySign(strength, axis);
     }
 
     private void resetMovementState() {
@@ -208,22 +239,22 @@ public class GameActionMovement extends VRActionVec2 {
         ClientContext.localPlayer.setMoving(false);
     }
 
-    private Vector2f toDigital(Vector2f value, float deadzone) {
+    private Vector2f toDigital(Vector2f value) {
         Vector2f digital = new Vector2f();
-        if (value.length() > deadzone) {
-            // get pointing angle, forward 0, back +-PI
+        if (value.length() > MIN_JOYSTICK_THRESHOLD) {
+            //joystick forward: angle 0 | joystick right: angle -PI
             float angle = (float) Math.atan2(value.x, value.y);
             float angleAbs = Math.abs(angle);
-            final float PI_8TH = Mth.PI / 8F;
-            // left/right
-            if (angleAbs >= PI_8TH && angleAbs <= Mth.PI - PI_8TH) {
+
+            // LEFT || RIGHT
+            if (angleAbs >= ANGLE_THRESHOLD && angleAbs <= Mth.PI - ANGLE_THRESHOLD) {
                 digital.x = Math.signum(angle);
             }
-            // forward/back
-            if (angleAbs < Mth.HALF_PI - PI_8TH) {
-                digital.y = 1F;
-            } else if (angleAbs > Mth.HALF_PI + PI_8TH) {
-                digital.y = -1F;
+
+            if (angleAbs < Mth.HALF_PI - ANGLE_THRESHOLD) {
+                digital.y = 1F; //forward
+            } else if (angleAbs > Mth.HALF_PI + ANGLE_THRESHOLD) {
+                digital.y = -1F; //back
             }
         }
         return digital;

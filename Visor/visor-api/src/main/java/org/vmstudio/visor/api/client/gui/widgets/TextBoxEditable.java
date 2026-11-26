@@ -1,6 +1,7 @@
 package org.vmstudio.visor.api.client.gui.widgets;
 
-import com.mojang.blaze3d.vertex.PoseStack;
+import com.mojang.blaze3d.platform.InputConstants;
+import org.vmstudio.visor.api.compatibility.mcversion.gui.McGuiEventListener;
 import lombok.Getter;
 import lombok.Setter;
 import org.vmstudio.visor.api.VisorAPI;
@@ -8,14 +9,13 @@ import org.vmstudio.visor.api.client.gui.GuiTexture;
 import org.vmstudio.visor.api.client.gui.overlays.framework.VROverlayScreen;
 import org.vmstudio.visor.api.client.gui.widgets.info.WidgetInfoTextBoxEditable;
 import net.minecraft.SharedConstants;
-import net.minecraft.Util;
+import net.minecraft.util.Util;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
-import net.minecraft.client.gui.GuiGraphics;
-import net.minecraft.client.gui.components.AbstractWidget;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
+import org.vmstudio.visor.api.compatibility.mcversion.gui.McWidget;
 import net.minecraft.client.gui.narration.NarrationElementOutput;
 import net.minecraft.client.gui.screens.Screen;
-import net.minecraft.client.renderer.RenderType;
 import net.minecraft.client.sounds.SoundManager;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.Style;
@@ -23,7 +23,9 @@ import net.minecraft.util.FormattedCharSequence;
 import net.minecraft.util.Mth;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-import org.lwjgl.glfw.GLFW;
+import org.vmstudio.visor.api.compatibility.mcversion.gui.McGuiUtils;
+import org.vmstudio.visor.api.compatibility.mcversion.McVersionUtils;
+import org.vmstudio.visor.api.compatibility.mcversion.McVersionClientUtils;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -33,7 +35,7 @@ import java.util.function.Predicate;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-public class TextBoxEditable extends AbstractWidget {
+public class TextBoxEditable extends McWidget implements McGuiEventListener {
     private static final int CURSOR_INSERT_COLOR = -3092272;
     private static final int LINE_PADDING = 2;
 
@@ -130,7 +132,7 @@ public class TextBoxEditable extends AbstractWidget {
     }
 
     @Override
-    protected void renderWidget(@NotNull GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTick) {
+    protected void renderWidget(@NotNull GuiGraphicsExtractor guiGraphics, int mouseX, int mouseY, float partialTick) {
         calculateLines();
         if (scrolling && lastScrollingCall + 200 < System.currentTimeMillis()) {
             scrolling = false;
@@ -149,19 +151,18 @@ public class TextBoxEditable extends AbstractWidget {
 
         guiGraphics.enableScissor(textX, textY, textMaxX, textMaxY);
 
-        PoseStack poseStack = guiGraphics.pose();
-        poseStack.pushPose();
-        poseStack.translate(textX, textY, 0);
-        poseStack.scale(textScale, textScale, 1.0f);
+        McGuiUtils.pushPose(guiGraphics);
+        McGuiUtils.translate(guiGraphics, textX, textY);
+        McGuiUtils.scale(guiGraphics, textScale, textScale);
 
         int lineHeight = getLineHeight();
         int lineY = -scrollOffset;
 
         if (this.value.isEmpty()) {
             if (this.hint != null && !this.isFocused()) {
-                guiGraphics.drawString(this.font, this.hint, 0, lineY, textHintColor);
+                McGuiUtils.drawString(guiGraphics, this.font, this.hint, 0, lineY, textHintColor);
             } else if (caretVisible() && (this.frame / 6) % 2 == 0) {
-                guiGraphics.drawString(this.font, "_", 0, lineY, this.textColor);
+                McGuiUtils.drawString(guiGraphics, this.font, "_", 0, lineY, this.textColor);
             }
         } else {
             if (updateCursorCoordinates) {
@@ -175,7 +176,7 @@ public class TextBoxEditable extends AbstractWidget {
                     String lineText = textLines.get(i);
                     FormattedCharSequence line = FormattedCharSequence.forward(lineText, Style.EMPTY);
 
-                    guiGraphics.drawString(this.font, line, 0, lineY, this.textColor);
+                    McGuiUtils.drawString(guiGraphics, this.font, line, 0, lineY, this.textColor);
 
                     if (!readOnly && isLineSelected(i)) {
                         renderSelectionHighlight(guiGraphics, i, lineY, lineHeight);
@@ -188,11 +189,9 @@ public class TextBoxEditable extends AbstractWidget {
                         boolean isCursorAtLineEnd = cursorPos == lineVisualEnd;
 
                         if (isCursorAtLineEnd) {
-                            guiGraphics.drawString(this.font, "_", cursorX, lineY, this.textColor);
+                            McGuiUtils.drawString(guiGraphics, this.font, "_", cursorX, lineY, this.textColor);
                         } else {
-                            guiGraphics.fill(
-                                    RenderType.guiOverlay(),
-                                    cursorX,
+                            McGuiUtils.fillGuiOverlay(guiGraphics, cursorX,
                                     lineY + LINE_PADDING,
                                     cursorX + 1,
                                     lineY + font.lineHeight + LINE_PADDING,
@@ -206,13 +205,13 @@ public class TextBoxEditable extends AbstractWidget {
             }
         }
 
-        poseStack.popPose();
+        McGuiUtils.popPose(guiGraphics);
         guiGraphics.disableScissor();
 
         renderScrollBar(guiGraphics);
     }
 
-    protected void renderScrollBar(@NotNull GuiGraphics guiGraphics) {
+    protected void renderScrollBar(@NotNull GuiGraphicsExtractor guiGraphics) {
         if (maxScrollOffset <= 0) return;
 
         int trackX = getScrollbarX();
@@ -243,11 +242,11 @@ public class TextBoxEditable extends AbstractWidget {
         if (scrollBarTex != null) {
             scrollBarTex.blit(guiGraphics, trackX, thumbY, scrollBarWidth, thumbHeight);
         } else {
-            guiGraphics.fill(RenderType.guiOverlay(), trackX, thumbY, trackX + scrollBarWidth, thumbY + thumbHeight, 0x80000000);
+            McGuiUtils.fillGuiOverlay(guiGraphics, trackX, thumbY, trackX + scrollBarWidth, thumbY + thumbHeight, 0x80000000);
         }
     }
 
-    private void renderSelectionHighlight(GuiGraphics guiGraphics, int lineIndex, int lineY, int lineHeight) {
+    private void renderSelectionHighlight(GuiGraphicsExtractor guiGraphics, int lineIndex, int lineY, int lineHeight) {
         int minCursor = Math.min(cursorPos, selectionAnchor);
         int maxCursor = Math.max(cursorPos, selectionAnchor);
 
@@ -269,9 +268,7 @@ public class TextBoxEditable extends AbstractWidget {
         int endX = textLen == 0 ? this.font.width(" ") : this.font.width(lineText.substring(0, selEnd));
 
         var halfPadding = LINE_PADDING / 2;
-        guiGraphics.fill(
-                RenderType.guiTextHighlight(),
-                startX,
+        McGuiUtils.fillTextHighlight(guiGraphics, startX,
                 lineY - halfPadding,
                 endX,
                 lineY + halfPadding + font.lineHeight,
@@ -436,7 +433,7 @@ public class TextBoxEditable extends AbstractWidget {
         int k = this.maxLength - this.value.length() - (i - j);
         if (k <= 0) return;
 
-        String string = SharedConstants.filterText(textToWrite, true);
+        String string = McVersionUtils.filterText(textToWrite, true);
         if (string.length() > k) string = string.substring(0, k);
 
         String string2 = new StringBuilder(this.value)
@@ -453,7 +450,7 @@ public class TextBoxEditable extends AbstractWidget {
     private void deleteText(int count) {
         if (readOnly) return;
 
-        if (Screen.hasControlDown()) {
+        if (McGuiUtils.hasControlDown()) {
             this.deleteWords(count);
         } else {
             this.deleteChars(count);
@@ -656,21 +653,21 @@ public class TextBoxEditable extends AbstractWidget {
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
         if (!this.canConsumeInput()) return false;
 
-        this.shiftPressed = Screen.hasShiftDown();
+        this.shiftPressed = McGuiUtils.hasShiftDown();
 
-        if (Screen.isCopy(keyCode)) {
+        if (McGuiUtils.isCopy(keyCode)) {
             Minecraft.getInstance().keyboardHandler.setClipboard(this.getHighlighted());
             return true;
-        } else if (Screen.isSelectAll(keyCode)) {
+        } else if (McGuiUtils.isSelectAll(keyCode)) {
             this.setSelectionAnchor(0);
             this.moveCursorToEnd();
             return true;
-        } else if (Screen.isPaste(keyCode)) {
+        } else if (McGuiUtils.isPaste(keyCode)) {
             if (!readOnly) {
                 this.insertText(Minecraft.getInstance().keyboardHandler.getClipboard());
             }
             return true;
-        } else if (Screen.isCut(keyCode)) {
+        } else if (McGuiUtils.isCut(keyCode)) {
             Minecraft.getInstance().keyboardHandler.setClipboard(this.getHighlighted());
             if (!readOnly) {
                 this.insertText("");
@@ -680,27 +677,27 @@ public class TextBoxEditable extends AbstractWidget {
 
         if (readOnly) {
             switch (keyCode) {
-                case GLFW.GLFW_KEY_PAGE_UP -> {
+                case InputConstants.KEY_PAGEUP -> {
                     setScrollAmount(getScrollAmount() - getLineHeightScaled() * 4);
                     return true;
                 }
-                case GLFW.GLFW_KEY_PAGE_DOWN -> {
+                case InputConstants.KEY_PAGEDOWN -> {
                     setScrollAmount(getScrollAmount() + getLineHeightScaled() * 4);
                     return true;
                 }
-                case GLFW.GLFW_KEY_UP -> {
+                case InputConstants.KEY_UP -> {
                     setScrollAmount(getScrollAmount() - getLineHeightScaled());
                     return true;
                 }
-                case GLFW.GLFW_KEY_DOWN -> {
+                case InputConstants.KEY_DOWN -> {
                     setScrollAmount(getScrollAmount() + getLineHeightScaled());
                     return true;
                 }
-                case GLFW.GLFW_KEY_HOME -> {
+                case InputConstants.KEY_HOME -> {
                     setScrollAmount(0);
                     return true;
                 }
-                case GLFW.GLFW_KEY_END -> {
+                case InputConstants.KEY_END -> {
                     setScrollAmount(this.maxScrollOffset);
                     return true;
                 }
@@ -711,54 +708,54 @@ public class TextBoxEditable extends AbstractWidget {
         }
 
         switch (keyCode) {
-            case GLFW.GLFW_KEY_ENTER, 335 -> {
+            case InputConstants.KEY_RETURN, InputConstants.KEY_NUMPADENTER -> {
                 if (!readOnly) {
                     this.insertText("\n");
                 }
                 return true;
             }
-            case GLFW.GLFW_KEY_BACKSPACE -> {
+            case InputConstants.KEY_BACKSPACE -> {
                 if (!readOnly) {
                     this.shiftPressed = false;
                     this.deleteText(-1);
-                    this.shiftPressed = Screen.hasShiftDown();
+                    this.shiftPressed = McGuiUtils.hasShiftDown();
                 }
                 return true;
             }
-            case GLFW.GLFW_KEY_DELETE -> {
+            case InputConstants.KEY_DELETE -> {
                 if (!readOnly) {
                     this.shiftPressed = false;
                     this.deleteText(1);
-                    this.shiftPressed = Screen.hasShiftDown();
+                    this.shiftPressed = McGuiUtils.hasShiftDown();
                 }
                 return true;
             }
-            case GLFW.GLFW_KEY_RIGHT -> {
-                if (Screen.hasControlDown()) {
+            case InputConstants.KEY_RIGHT -> {
+                if (McGuiUtils.hasControlDown()) {
                     this.moveCursorTo(this.getWordPosition(1));
                 } else {
                     this.moveCursor(1);
                 }
                 return true;
             }
-            case GLFW.GLFW_KEY_LEFT -> {
-                if (Screen.hasControlDown()) {
+            case InputConstants.KEY_LEFT -> {
+                if (McGuiUtils.hasControlDown()) {
                     this.moveCursorTo(this.getWordPosition(-1));
                 } else {
                     this.moveCursor(-1);
                 }
                 return true;
             }
-            case GLFW.GLFW_KEY_DOWN -> {
+            case InputConstants.KEY_DOWN -> {
                 this.moveCursorVertical(1);
                 return true;
             }
-            case GLFW.GLFW_KEY_UP -> {
+            case InputConstants.KEY_UP -> {
                 this.moveCursorVertical(-1);
                 return true;
             }
-            case GLFW.GLFW_KEY_HOME -> {
-                if (Screen.hasControlDown()) {
+            case InputConstants.KEY_HOME -> {
+                if (McGuiUtils.hasControlDown()) {
                     this.moveCursorToStart();
                 } else {
                     calculateLines();
@@ -768,8 +765,8 @@ public class TextBoxEditable extends AbstractWidget {
                 }
                 return true;
             }
-            case GLFW.GLFW_KEY_END -> {
-                if (Screen.hasControlDown()) {
+            case InputConstants.KEY_END -> {
+                if (McGuiUtils.hasControlDown()) {
                     this.moveCursorToEnd();
                 } else {
                     calculateLines();
@@ -802,7 +799,7 @@ public class TextBoxEditable extends AbstractWidget {
     @Override
     public boolean charTyped(char codePoint, int modifiers) {
         if (!this.canConsumeInput()) return false;
-        if (SharedConstants.isAllowedChatCharacter(codePoint)) {
+        if (McVersionUtils.isAllowedChatCharacter(codePoint)) {
             if (!readOnly) {
                 this.insertText(Character.toString(codePoint));
             }
@@ -849,7 +846,7 @@ public class TextBoxEditable extends AbstractWidget {
         }
 
         // Focus the widget so wheel works; avoid selection change in read-only
-        this.shiftPressed = readOnly ? false : Screen.hasShiftDown();
+        this.shiftPressed = readOnly ? false : McGuiUtils.hasShiftDown();
         if (!readOnly && !this.shiftPressed) {
             this.setSelectionAnchor(this.cursorPos);
         }
@@ -879,7 +876,7 @@ public class TextBoxEditable extends AbstractWidget {
                         overlayBase = overlayScreen;
                     }
                     Screen screenFocused = overlayBase == null
-                            ? Minecraft.getInstance().screen
+                            ? McVersionClientUtils.screen()
                             : overlayBase;
                     keyboardAccessor.showKeyboard(screenFocused);
                 }
@@ -918,7 +915,7 @@ public class TextBoxEditable extends AbstractWidget {
         followCaret = false;
 
         // Text selection drag (only when not read-only and not on scrollbar)
-        if (button == 0 && !this.scrolling && !readOnly) {
+        if (button == InputConstants.MOUSE_BUTTON_LEFT && !this.scrolling && !readOnly) {
             calculateLines();
 
             if (mouseY < this.getY() + paddingY) {
@@ -949,7 +946,7 @@ public class TextBoxEditable extends AbstractWidget {
         }
 
         // Scrollbar drag: only when drag started on scrollbar
-        if (button == 0 && this.scrolling) {
+        if (button == InputConstants.MOUSE_BUTTON_LEFT && this.scrolling) {
             lastScrollingCall = System.currentTimeMillis();
 
             int trackY = this.getY() + paddingY;
@@ -991,7 +988,7 @@ public class TextBoxEditable extends AbstractWidget {
 
     @Override
     public boolean mouseReleased(double mouseX, double mouseY, int button) {
-        if (button == 0) {
+        if (button == InputConstants.MOUSE_BUTTON_LEFT) {
             this.scrolling = false;
             this.thumbGrabOffset = -1;
         }

@@ -1,10 +1,9 @@
 package org.vmstudio.visor.core.server.network;
-
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.ExperienceOrb;
 import net.minecraft.world.entity.item.ItemEntity;
-import net.minecraft.world.entity.projectile.AbstractArrow;
+import net.minecraft.world.entity.projectile.arrow.AbstractArrow;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.GameType;
 import net.minecraft.world.phys.AABB;
@@ -13,10 +12,12 @@ import org.vmstudio.visor.api.common.HandType;
 import org.vmstudio.visor.api.common.network.*;
 import org.vmstudio.visor.api.common.network.toclient.HandshakePayloadToClient;
 import org.vmstudio.visor.api.common.network.toclient.SettingsPayloadToClient;
+import org.vmstudio.visor.api.common.network.toclient.UnknownPayloadToClient;
 import org.vmstudio.visor.api.common.network.toclient.vrstate.OffhandSlotPayloadToClient;
 import org.vmstudio.visor.api.common.network.toclient.vrstate.RotationYPayloadToClient;
 import org.vmstudio.visor.api.common.network.toserver.*;
 import org.vmstudio.visor.api.common.network.toserver.vrstate.*;
+import org.vmstudio.visor.api.compatibility.mcversion.McEntity;
 import org.vmstudio.visor.api.server.SupportedMovement;
 import org.vmstudio.visor.api.server.VRServerSettings;
 import org.vmstudio.visor.core.common.ServerConfig;
@@ -30,9 +31,9 @@ import net.minecraft.server.level.ServerPlayer;
 import org.apache.logging.log4j.Logger;
 import org.vmstudio.visor.extensions.common.ServerPlayerGameModeExtension;
 
+import org.vmstudio.visor.api.compatibility.mcversion.McVersionUtils;
 import java.util.function.Consumer;
 
-import static net.minecraft.server.network.ServerGamePacketListenerImpl.MAX_INTERACTION_DISTANCE;
 
 public class ServerPacketHandler {
 
@@ -40,6 +41,7 @@ public class ServerPacketHandler {
     public static void handlePacket(VisorPayloadToServer payloadToServer,
                                     ServerPlayer serverPlayer,
                                     Consumer<VisorPayloadToClient> packetConsumer){
+        if (payloadToServer instanceof UnknownPayloadToServer) return;
 
         VisorServerPlayerImpl packetReceiver = VisorServerImpl.INSTANCE.getVisorPlayer(serverPlayer);
 
@@ -134,7 +136,7 @@ public class ServerPacketHandler {
                 if(!VRServerSettings.isRoomClimbingSupported()){
                     return;
                 }
-                vrPlayer.getMcPlayer().fallDistance = 0.0F;
+                vrPlayer.getMcPlayer().resetFallDistance();
             }
             case TELEPORT -> {
                 if(VRServerSettings.getSupportedMovement() == SupportedMovement.CONTROLLER){
@@ -142,7 +144,8 @@ public class ServerPacketHandler {
                 }
                 var payload = (TeleportMovePayloadToServer) payloadToServer;
                 ServerPlayer player = vrPlayer.getMcPlayer();
-                player.absMoveTo(
+                McEntity.absSnapTo(
+                        player,
                         payload.x(), payload.y(), payload.z(),
                         player.getYRot(),
                         player.getXRot()
@@ -158,7 +161,7 @@ public class ServerPacketHandler {
 
                 var payload = (SwingAttackPayloadToServer) payloadToServer;
 
-                ServerLevel serverLevel = serverPlayer.serverLevel();
+                ServerLevel serverLevel = McEntity.serverLevel(serverPlayer);
                 HandType handType = payload.mainHand() ? HandType.MAIN : HandType.OFFHAND;
 
                 Entity entity = serverLevel.getEntityOrPart(
@@ -173,7 +176,7 @@ public class ServerPacketHandler {
                     }
 
                     AABB aABB = entity.getBoundingBox();
-                    if (aABB.distanceToSqr(serverPlayer.getEyePosition()) < MAX_INTERACTION_DISTANCE) {
+                    if (McVersionUtils.canInteractWithEntity(serverPlayer, aABB)) {
 
                         if (!(entity instanceof ItemEntity) && !(entity instanceof ExperienceOrb)
                                 && !(entity instanceof AbstractArrow) && entity != serverPlayer) {
@@ -217,7 +220,7 @@ public class ServerPacketHandler {
                         .visor$handleVrBlockDamage(
                                 payload.blockPos(),
                                 payload.direction(),
-                                serverPlayer.level().getMaxBuildHeight(),
+                                McVersionUtils.maxBuildHeight(serverPlayer.level()),
                                 payload.sequence(),
                                 itemStack
                         );
@@ -235,23 +238,21 @@ public class ServerPacketHandler {
 
         if (VRServerSettings.isServerDebug()) {
             logger.info(
-                    "Visor: player '{}' joined with {}",
+                    "Visor: player '{}' joined with {} ({})",
                     player.getName().getString(),
-                    visorVersion
+                    visorVersion,
+                    vrActive ? "VR" : "non-VR"
             );
         }
 
-        // check if client supports a supported version
-        if (networkVersion == VisorNetwork.CORE_NETWORK_VERSION)
-        {
+        if (networkVersion == VisorNetwork.CORE_NETWORK_VERSION) {
             if (VRServerSettings.isServerDebug()) {
-                logger.info("Player {} has supported Visor network version",
+                logger.info("Player {} has supported Visor network version {}",
                         player.getName().getString(),
                         networkVersion
                 );
             }
         } else {
-            // unsupported version, send notification, and disregard
             player.connection.disconnect(
                     Component.translatable("visor.messages.network_mismatch", networkVersion, VisorNetwork.CORE_NETWORK_VERSION)
             );
@@ -273,13 +274,6 @@ public class ServerPacketHandler {
         VisorServerPlayerImpl packetReceiver;
         if(vrActive){
             vrPlayer = new VRServerPlayerImpl(player);
-            if (VRServerSettings.isServerDebug()) {
-                VisorServerImpl.LOGGER.info(
-                        "VR: player '{}' joined with {}",
-                        vrPlayer.getMcPlayer().getName().getString(),
-                        visorVersion
-                );
-            }
             VisorServerImpl.INSTANCE.addVisorPlayer(vrPlayer);
 
             packetConsumer.accept(
@@ -306,13 +300,6 @@ public class ServerPacketHandler {
             }
         }else{
             packetReceiver = new VisorServerPlayerImpl(player);
-            if (VRServerSettings.isServerDebug()) {
-                VisorServerImpl.LOGGER.info(
-                        "NonVR: player '{}' joined with {}",
-                        packetReceiver.getMcPlayer().getName().getString(),
-                        visorVersion
-                );
-            }
             VisorServerImpl.INSTANCE.addVisorPlayer(packetReceiver);
 
             packetConsumer.accept(

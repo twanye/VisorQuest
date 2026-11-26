@@ -1,16 +1,19 @@
 package org.vmstudio.visor.core.client.render;
 
-import com.mojang.blaze3d.systems.RenderSystem;
+import com.mojang.blaze3d.pipeline.RenderTarget;
 import lombok.Getter;
 import lombok.Setter;
 import me.phoenixra.atumvr.api.enums.EyeType;
 import me.phoenixra.atumvr.api.utils.GLUtils;
 import org.vmstudio.visor.api.client.gui.overlays.framework.VROverlayScreen;
-import org.vmstudio.visor.api.client.player.body.VRBody;
 import org.vmstudio.visor.api.client.render.VRRenderPass;
 import org.vmstudio.visor.api.client.render.VRRenderer;
+import org.vmstudio.visor.api.compatibility.mcversion.render.McGlState;
+import org.vmstudio.visor.api.compatibility.mcversion.render.McRenderTarget;
 import org.vmstudio.visor.core.client.render.context.RenderContext;
-import org.vmstudio.visor.compatibility.ShadersHelper;
+import org.vmstudio.visor.core.client.render.helpers.MirrorHelper;
+import org.vmstudio.visor.core.client.render.helpers.RenderStateHelper;
+import org.vmstudio.visor.compatibility.ShaderCompatHelper;
 import org.vmstudio.visor.core.client.VisorState;
 import org.vmstudio.visor.core.client.VisorClientImpl;
 import org.vmstudio.visor.core.client.gui.VRGuiManagerImpl;
@@ -21,15 +24,17 @@ import org.vmstudio.visor.core.client.render.target.types.RenderTargetFirst;
 import org.vmstudio.visor.core.client.render.target.types.RenderTargetGUI;
 import org.vmstudio.visor.core.client.render.target.types.RenderTargetMain;
 import org.vmstudio.visor.core.client.render.target.types.RenderTargetThird;
-import org.vmstudio.visor.core.client.settings.VRClientSettings;
-import org.vmstudio.visor.core.client.settings.options.enums.MirrorMode;
+import org.vmstudio.visor.core.client.utils.ClientUtils;
+import org.vmstudio.visor.api.client.settings.VRClientSettings;
+import org.vmstudio.visor.api.client.settings.enums.MirrorMode;
 import org.vmstudio.visor.api.common.utils.LoggerUtils;
 import net.minecraft.client.Minecraft;
+import org.vmstudio.visor.api.compatibility.mcversion.McVersionClientUtils;
+import org.vmstudio.visor.api.compatibility.mcversion.render.McFeatureRenderer;
 import org.jetbrains.annotations.NotNull;
 import org.joml.Matrix4f;
 import org.lwjgl.system.MemoryStack;
 
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -38,6 +43,8 @@ import org.vmstudio.visor.core.client.ClientContext;
 import static org.vmstudio.visor.core.client.VisorClientImpl.MC;
 
 public abstract class VRRendererBase implements VRRenderer {
+    private static final long RENDER_SCALE_SETTLE_MS = 300L;
+
     public RenderTargetMain mainTarget;
 
     public RenderTargetGUI guiTarget;
@@ -60,6 +67,9 @@ public abstract class VRRendererBase implements VRRenderer {
     private int mirrorHeight;
 
     public float renderScale;
+    private float appliedRenderScaleFactor;
+    private float pendingRenderScaleFactor;
+    private long pendingRenderScaleSince;
 
 
     public long lastWindow = 0L;
@@ -87,6 +97,8 @@ public abstract class VRRendererBase implements VRRenderer {
     protected abstract void setupEyes();
     protected abstract void setupResolution(MemoryStack stack);
     protected abstract void setupHiddenArea(MemoryStack stack);
+    protected abstract boolean shouldRenderFrame();
+    protected abstract void endFrame();
     public abstract Matrix4f getProjectionMatrix(EyeType eyeType, float nearClip, float farClip);
     @Override
     public abstract VisorScene getCurrentScene();
@@ -94,15 +106,50 @@ public abstract class VRRendererBase implements VRRenderer {
 
 
     public void render(RenderContext context) {
+        RenderStateHelper.drainExternalGLErrors("VR render");
         ClientContext.decorationRenderer.updateRenderState();
-        renderFrame(context);
+        try {
+            renderFrame(context);
+            renderMirror(context);
+        } finally {
+            endFrame();
+        }
+    }
 
+    private void renderMirror(RenderContext context) {
+        context.profiler().push("VR mirror");
+        VRRenderState.startVRMirrorPhase();
+        McRenderTarget.bindWrite(McRenderTarget.mainTarget());
+        //? if >=26.1 {
+        McRenderTarget.clear(McRenderTarget.mainTarget());
+        //?}
+        boolean frameRendered = shouldRenderFrame();
+        MirrorHelper.drawMirror(frameRendered);
+        if (askedForScreenShot) {
+            askedForScreenShot = false;
+            ClientUtils.takeScreenshot(screenshotSource(frameRendered));
+        }
+        context.profiler().pop();
+        GLUtils.checkGLError("post mirror");
+    }
+
+    private RenderTarget screenshotSource(boolean frameRendered) {
+        var window = (WindowExtension) (Object) MC.getWindow();
+        boolean mirrorShown = VRClientSettings.getMirrorMode() != MirrorMode.OFF
+                && window.visor$mcScreenWidth() > 0 && window.visor$mcScreenHeight() > 0;
+        if (mirrorShown || !frameRendered) {
+            return McRenderTarget.mainTarget();
+        }
+        var eye = VRClientSettings.getMirrorEye() == EyeType.LEFT
+                ? getTextureLeftEye() : getTextureRightEye();
+        return eye.getRenderTarget();
     }
 
     public void onGameRenderStart(boolean renderLevel) {
 
         try {
-            GLUtils.checkGLError("pre render setup ");
+            //drain GL errors caused by other mods
+            RenderStateHelper.drainExternalGLErrors("render setup");
             ClientContext.renderer.updateState();
             GLUtils.checkGLError("post render setup ");
         } catch (Throwable throwable) {
@@ -112,28 +159,27 @@ public abstract class VRRendererBase implements VRRenderer {
 
         VRRenderState.startVRGuiPhase();
 
-        RenderSystem.depthMask(true);
-        RenderSystem.colorMask(true, true, true, true);
+        McGlState.depthMask(true);
+        McGlState.colorMask(true, true, true, true);
 
-        MC.mainRenderTarget.clear(Minecraft.ON_OSX);
-        MC.mainRenderTarget.bindWrite(true);
-
-        // push pose to pop it in scene
-        RenderSystem.getModelViewStack().pushPose();
+        McRenderTarget.clear(McRenderTarget.mainTarget());
+        McRenderTarget.bindWrite(McRenderTarget.mainTarget());
 
         ((GameRendererExtension)MC.gameRenderer).visor$setVRGuiVisible(
-                MC.screen != null
-                        || MC.getOverlay() != null
-                        || renderLevel && MC.getEntityRenderDispatcher().camera != null
+                renderLevel && MC.getEntityRenderDispatcher().camera != null
         );
     }
 
     public void updateState() throws Throwable {
 
         //Window context changed
-        if (MC.getWindow().getWindow() != this.lastWindow) {
-            this.lastWindow = MC.getWindow().getWindow();
-            this.prepareReinit("Window Handle Changed");
+        if (McVersionClientUtils.windowHandle() != this.lastWindow) {
+            this.lastWindow = McVersionClientUtils.windowHandle();
+            this.prepareReinit("window recreated");
+        }
+
+        if (!this.reinitTargets) {
+            checkRenderScale();
         }
 
         //-----------------
@@ -152,6 +198,7 @@ public abstract class VRRendererBase implements VRRenderer {
 
     @Override
     public void init() throws Throwable {
+        RenderStateHelper.drainExternalGLErrors("VR init");
         try (MemoryStack stack = MemoryStack.stackPush()) {
             setupResolution(stack);
             setupEyes();
@@ -170,9 +217,9 @@ public abstract class VRRendererBase implements VRRenderer {
         int eyeWidth = getResolutionWidth();
         int eyeHeight = getResolutionHeight();
 
-        this.renderScale = (float) Math.sqrt(VRClientSettings.getRenderScaleFactor());
-        int eyeRenderWidth = (int) Math.ceil(eyeWidth * this.renderScale);
-        int eyeRenderHeight = (int) Math.ceil(eyeHeight * this.renderScale);
+        updateRenderScale();
+        int eyeRenderWidth = scaledEyeSize(eyeWidth);
+        int eyeRenderHeight = scaledEyeSize(eyeHeight);
 
         List<VRRenderPass> list = VRRenderState.getActivePasses();
         for (VRRenderPass renderStage : list) {
@@ -185,10 +232,13 @@ public abstract class VRRendererBase implements VRRenderer {
         mainTarget.init(
                 eyeRenderWidth, eyeRenderHeight
         );
+        if (eyeRenderWidth != eyeWidth || eyeRenderHeight != eyeHeight) {
+            mainTarget.initScalingTarget(eyeWidth, eyeRenderHeight);
+        }
 
         firstPersonTarget = new RenderTargetFirst();
         if(list.contains(VRRenderPass.CENTER)
-                || ShadersHelper.isShaderActive()
+                || ShaderCompatHelper.isShaderActive()
                 && (mirrorWidth > 0 && mirrorHeight > 0)) {
             firstPersonTarget.init(
                     mirrorWidth, mirrorHeight
@@ -197,7 +247,7 @@ public abstract class VRRendererBase implements VRRenderer {
 
         thirdPersonTarget = new RenderTargetThird();
         if(list.contains(VRRenderPass.THIRD_PERSON)
-                || ShadersHelper.isShaderActive()
+                || ShaderCompatHelper.isShaderActive()
                 && (mirrorWidth > 0 && mirrorHeight > 0)) {
             thirdPersonTarget.init(
                     mirrorWidth, mirrorHeight
@@ -219,7 +269,7 @@ public abstract class VRRendererBase implements VRRenderer {
         updateProjection();
 
         try {
-            minecraft.mainRenderTarget = mainTarget.getTarget();
+            McRenderTarget.setMainTarget(mainTarget.getTarget());
 
             VRShaders.setup();
         } catch (Exception exception1) {
@@ -227,12 +277,12 @@ public abstract class VRRendererBase implements VRRenderer {
             System.exit(-1);
         }
 
-        if (minecraft.screen != null) {
-            minecraft.resizeDisplay();
+        if (McVersionClientUtils.screen() != null) {
+            McVersionClientUtils.resizeDisplay(minecraft);
         }
 
         var windowModif = (WindowExtension) (Object) minecraft.getWindow();
-        long windowPixels = (long) windowModif.visor$getActualScreenWidth() * windowModif.visor$getActualScreenHeight();
+        long windowPixels = (long) windowModif.visor$mcScreenWidth() * windowModif.visor$mcScreenHeight();
         long vrPixels = eyeRenderWidth * eyeRenderHeight * 2L;
 
         if (list.contains(VRRenderPass.CENTER)) {
@@ -242,15 +292,19 @@ public abstract class VRRendererBase implements VRRenderer {
 
         VisorClientImpl.LOGGER.info(
                 "[Visor] render targets created:" +
-                "\nEye target width: " + eyeWidth + ", height: " + eyeHeight + " [" + String.format("%.1f", (float) (eyeWidth * eyeHeight) / 1000000.0F) + " MP]" +
-                "\nRender target width: " + eyeRenderWidth + ", height: " + eyeRenderHeight + " [Render scale: " + Math.round(VRClientSettings.getRenderScaleFactor() * 100.0F) + "%, " + String.format("%.1f", (float) (eyeRenderWidth * eyeRenderHeight) / 1000000.0F) + " MP]" +
-                "\nMain window width: " + windowModif.visor$getActualScreenWidth() + ", height: " + windowModif.visor$getActualScreenHeight() + " [" + String.format("%.1f", (float) windowPixels / 1000000.0F) + " MP]" +
-                "\nTotal shaded pixels per frame: " + String.format("%.1f", (float) vrPixels / 1000000.0F) + " MP (eye stencil not accounted for)"
+                "\nEye target: " + eyeWidth + "x" + eyeHeight + " (" + String.format("%.1f", (float) (eyeWidth * eyeHeight) / 1000000.0F) + " MP)" +
+                "\nRender target: " + eyeRenderWidth + "x" + eyeRenderHeight + " at " + Math.round(VRClientSettings.getRenderScaleFactor() * 100.0F) + "% scale (" + String.format("%.1f", (float) (eyeRenderWidth * eyeRenderHeight) / 1000000.0F) + " MP)" +
+                "\nMain window: " + windowModif.visor$mcScreenWidth() + "x" + windowModif.visor$mcScreenHeight() + " (" + String.format("%.1f", (float) windowPixels / 1000000.0F) + " MP)" +
+                "\nPer-frame fill: " + String.format("%.1f", (float) vrPixels / 1000000.0F) + " MP, stencil mask not subtracted"
         );
 
-        minecraft.levelRenderer.onResourceManagerReload(minecraft.getResourceManager());
+        //? if >=26.2 {
+        minecraft.levelExtractor.onResourceManagerReload(minecraft.getResourceManager());
+        //?} else {
+        /*minecraft.levelRenderer.onResourceManagerReload(minecraft.getResourceManager());
+        *///?}
 
-        ShadersHelper.bridge().onVisorTargetsRecreated(eyeRenderWidth, eyeRenderHeight);
+        ShaderCompatHelper.bridge().onVisorTargetsRecreated(eyeRenderWidth, eyeRenderHeight);
 
         this.reinitTargets = false;
 
@@ -260,15 +314,10 @@ public abstract class VRRendererBase implements VRRenderer {
     private void resizeTargets() throws Exception {
         resizeTargets = false;
 
-        float resolutionScale = 1.0F;
-
-        this.renderScale = (float) Math.sqrt(VRClientSettings.getRenderScaleFactor()) * resolutionScale;
-        int eyeRenderWidth = (int) Math.ceil(getResolutionWidth() * this.renderScale);
-        int eyeRenderHeight = (int) Math.ceil(getResolutionHeight() * this.renderScale);
+        int eyeRenderWidth = scaledEyeSize(getResolutionWidth());
+        int eyeRenderHeight = scaledEyeSize(getResolutionHeight());
 
         updateMirrorSize(eyeRenderWidth, eyeRenderHeight);
-
-        // main render target
         mainTarget.resize(eyeRenderWidth, eyeRenderHeight);
 
         // mirror
@@ -279,8 +328,6 @@ public abstract class VRRendererBase implements VRRenderer {
             thirdPersonTarget.resize(mirrorWidth, mirrorHeight);
         }
 
-
-        // resize gui, if changed
         VRGuiManagerImpl guiManager = ClientContext.visor.getGuiManager();
         if (guiManager.updateResolution()) {
             guiTarget.resize(
@@ -289,14 +336,13 @@ public abstract class VRRendererBase implements VRRenderer {
             );
         }
 
-        Minecraft.getInstance().resizeDisplay();
+        McVersionClientUtils.resizeDisplay(Minecraft.getInstance());
     }
 
 
     @Override
     public void prepareReinit(@NotNull String cause) {
         if (!reinitTargets) {
-            // only print the initial cause
             VisorClientImpl.LOGGER.info("Reinit Render Buffers: {}", cause);
         }
         this.reinitTargets = true;
@@ -305,10 +351,36 @@ public abstract class VRRendererBase implements VRRenderer {
     @Override
     public void prepareResize(@NotNull String cause) {
         if (!this.resizeTargets) {
-            // only print the initial cause
             VisorClientImpl.LOGGER.info("Resizing Render Buffers: {}", cause);
         }
         this.resizeTargets = true;
+    }
+
+    // waits for the slider to settle, a reinit rebuilds every target and shader pipeline
+    private void checkRenderScale() {
+        float requested = VRClientSettings.getRenderScaleFactor();
+        if (requested == this.appliedRenderScaleFactor) {
+            return;
+        }
+        long now = System.currentTimeMillis();
+        if (requested != this.pendingRenderScaleFactor) {
+            this.pendingRenderScaleFactor = requested;
+            this.pendingRenderScaleSince = now;
+        } else if (now - this.pendingRenderScaleSince >= RENDER_SCALE_SETTLE_MS) {
+            prepareReinit("render scale changed");
+        }
+    }
+
+    private void updateRenderScale() {
+        this.appliedRenderScaleFactor = VRClientSettings.getRenderScaleFactor();
+        this.pendingRenderScaleFactor = this.appliedRenderScaleFactor;
+        float maxScale = (float) McGlState.maxSupportedTextureSize()
+                / Math.max(getResolutionWidth(), getResolutionHeight());
+        this.renderScale = Math.min((float) Math.sqrt(Math.max(this.appliedRenderScaleFactor, 0.1F)), maxScale);
+    }
+
+    private int scaledEyeSize(int size) {
+        return Math.min(McGlState.maxSupportedTextureSize(), (int) Math.ceil(size * this.renderScale));
     }
 
 
@@ -330,17 +402,16 @@ public abstract class VRRendererBase implements VRRenderer {
                 nearClipPlane,
                 farClipPlane
         );
-
     }
 
     private void updateMirrorSize(int eyeWidth, int eyeHeight) {
-        var windowModif =  ((WindowExtension) (Object)
+        var windowModif = ((WindowExtension) (Object)
                 Minecraft.getInstance().getWindow());
         mirrorWidth = Math.max(1,
-                windowModif.visor$getActualScreenWidth()
+                windowModif.visor$mcScreenWidth()
         );
         mirrorHeight = Math.max(1,
-                windowModif.visor$getActualScreenHeight()
+                windowModif.visor$mcScreenHeight()
         );
         if (VRClientSettings.getMirrorMode() == MirrorMode.MIXED_REALITY) {
             mirrorWidth = mirrorWidth / 2;
@@ -350,7 +421,7 @@ public abstract class VRRendererBase implements VRRenderer {
             }
         }
 
-        if (ShadersHelper.sameSizedBuffers()) {
+        if (ShaderCompatHelper.sameSizedBuffers()) {
             mirrorWidth = eyeWidth;
             mirrorHeight = eyeHeight;
         }
@@ -372,6 +443,7 @@ public abstract class VRRendererBase implements VRRenderer {
             guiTarget.destroy();
             guiTarget = null;
         }
+        McFeatureRenderer.close();
     }
 
 
@@ -383,7 +455,11 @@ public abstract class VRRendererBase implements VRRenderer {
 
     @Override
     public long getWindowHandle() {
-        return MC.getWindow().getWindow();
+        //? if >=26.3 {
+        return 0L;
+        //?} else {
+        /*return McVersionClientUtils.windowHandle();
+        *///?}
     }
 
     @Override

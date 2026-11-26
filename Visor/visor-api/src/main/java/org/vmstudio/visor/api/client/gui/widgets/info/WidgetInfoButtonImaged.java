@@ -7,10 +7,12 @@ import me.phoenixra.atumvr.api.misc.color.AtumColor;
 import org.vmstudio.visor.api.client.gui.GuiTexture;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
-import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
+import org.vmstudio.visor.api.compatibility.mcversion.gui.McGuiUtils;
 import net.minecraft.client.gui.components.Tooltip;
 import net.minecraft.network.chat.Component;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 import org.joml.Vector2i;
 
 
@@ -31,6 +33,16 @@ public class WidgetInfoButtonImaged extends WidgetInfoImage {
     @Setter @Getter
     @Accessors(chain = true)
     private GuiTexture textureInactive;
+
+
+    @Getter
+    @Accessors(chain = true)
+    private AtumColor fillColor;
+
+
+    @Getter
+    @Accessors(chain = true)
+    private AtumColor fillColorHovered;
 
     @Setter @Getter
     @Accessors(chain = true)
@@ -107,6 +119,9 @@ public class WidgetInfoButtonImaged extends WidgetInfoImage {
     private Tooltip tooltip;
 
 
+    private int fillColorInt;
+    private int fillColorHoveredInt;
+
     private int highlightHoveredInt = AtumColor.WHITE.asInt();
     private int highlightSelectedInt = AtumColor.GRAY.asInt();
     private int highlightHoveredSelectedInt = AtumColor.LIGHT_GRAY.asInt();
@@ -121,6 +136,10 @@ public class WidgetInfoButtonImaged extends WidgetInfoImage {
         textureSelected = copyFrom.textureSelected;
         textureHoveredSelected = copyFrom.textureHoveredSelected;
         textureInactive = copyFrom.textureInactive;
+        fillColor = copyFrom.fillColor;
+        fillColorInt = copyFrom.fillColorInt;
+        fillColorHovered = copyFrom.fillColorHovered;
+        fillColorHoveredInt = copyFrom.fillColorHoveredInt;
         highlightEnabled = copyFrom.highlightEnabled;
         highlightCorners = copyFrom.highlightCorners;
         highlightHovered = copyFrom.highlightHovered;
@@ -190,6 +209,18 @@ public class WidgetInfoButtonImaged extends WidgetInfoImage {
 
     }
 
+    public WidgetInfoButtonImaged setFillColor(@Nullable AtumColor color) {
+        this.fillColor = color;
+        this.fillColorInt = color == null ? 0 : color.asInt();
+        return this;
+    }
+
+    public WidgetInfoButtonImaged setFillColorHovered(@Nullable AtumColor color) {
+        this.fillColorHovered = color;
+        this.fillColorHoveredInt = color == null ? 0 : color.asInt();
+        return this;
+    }
+
     public WidgetInfoButtonImaged setHighlightHovered(AtumColor color) {
         this.highlightHovered = color;
         this.highlightHoveredInt = color.asInt();
@@ -226,7 +257,30 @@ public class WidgetInfoButtonImaged extends WidgetInfoImage {
     }
 
 
-    public void drawHighlight(GuiGraphics guiGraphics,
+    public void drawFill(GuiGraphicsExtractor guiGraphics) {
+        drawFill(guiGraphics, false);
+    }
+
+    public void drawFill(GuiGraphicsExtractor guiGraphics, boolean hovered) {
+        int color;
+        if (hovered && fillColorHovered != null) {
+            color = fillColorHoveredInt;
+        } else if (fillColor != null) {
+            color = fillColorInt;
+        } else {
+            return;
+        }
+
+        int x0 = getX();
+        int y0 = getY();
+        guiGraphics.fill(
+                x0, y0,
+                x0 + getWidth(), y0 + getHeight(),
+                color
+        );
+    }
+
+    public void drawHighlight(GuiGraphicsExtractor guiGraphics,
                               boolean active,
                               boolean hovered,
                               boolean selected) {
@@ -270,67 +324,65 @@ public class WidgetInfoButtonImaged extends WidgetInfoImage {
 
         float innerHAvail = Math.max(0f, innerH - 2f * s);
 
-        var pose = guiGraphics.pose();
-
         // Top
-        pose.pushPose();
-        pose.translate(x0, y0, 0);
-        pose.scale(innerW, s, 1.0f);
+        McGuiUtils.pushPose(guiGraphics);
+        McGuiUtils.translate(guiGraphics, x0, y0);
+        McGuiUtils.scale(guiGraphics, innerW, s);
         guiGraphics.fill(0, 0, 1, 1, baseColor);
-        pose.popPose();
+        McGuiUtils.popPose(guiGraphics);
 
         // Bottom
-        pose.pushPose();
-        pose.translate(x0, y1 - s, 0);
-        pose.scale(innerW, s, 1.0f);
+        McGuiUtils.pushPose(guiGraphics);
+        McGuiUtils.translate(guiGraphics, x0, y1 - s);
+        McGuiUtils.scale(guiGraphics, innerW, s);
         guiGraphics.fill(0, 0, 1, 1, baseColor);
-        pose.popPose();
+        McGuiUtils.popPose(guiGraphics);
 
         if (innerHAvail > 0f) {
             // Left (between corners)
-            pose.pushPose();
-            pose.translate(x0, y0 + s, 0);
-            pose.scale(s, innerHAvail, 1.0f);
+            McGuiUtils.pushPose(guiGraphics);
+            McGuiUtils.translate(guiGraphics, x0, y0 + s);
+            McGuiUtils.scale(guiGraphics, s, innerHAvail);
             guiGraphics.fill(0, 0, 1, 1, baseColor);
-            pose.popPose();
+            McGuiUtils.popPose(guiGraphics);
 
             // Right (between corners)
-            pose.pushPose();
-            pose.translate(x1 - s, y0 + s, 0);
-            pose.scale(s, innerHAvail, 1.0f);
+            McGuiUtils.pushPose(guiGraphics);
+            McGuiUtils.translate(guiGraphics, x1 - s, y0 + s);
+            McGuiUtils.scale(guiGraphics, s, innerHAvail);
             guiGraphics.fill(0, 0, 1, 1, baseColor);
-            pose.popPose();
+            McGuiUtils.popPose(guiGraphics);
         }
 
         // Corners
         if(highlightCorners) {
             // Top-left
-            pose.pushPose();
-            pose.translate(x0, y0, 0);
-            pose.scale(s, s, 1.0f);
+            McGuiUtils.pushPose(guiGraphics);
+            McGuiUtils.translate(guiGraphics, x0, y0);
+            McGuiUtils.scale(guiGraphics, s, s);
             guiGraphics.fill(0, 0, 1, 1, cornerColor);
-            pose.popPose();
+            McGuiUtils.popPose(guiGraphics);
 
             // Top-right
-            pose.pushPose();
-            pose.translate(x1 - s, y0, 0);
-            pose.scale(s, s, 1.0f);
+            McGuiUtils.pushPose(guiGraphics);
+            McGuiUtils.translate(guiGraphics, x1 - s, y0);
+            McGuiUtils.scale(guiGraphics, s, s);
             guiGraphics.fill(0, 0, 1, 1, cornerColor);
-            pose.popPose();
+            McGuiUtils.popPose(guiGraphics);
 
             // Bottom-left
-            pose.pushPose();
-            pose.translate(x0, y1 - s, 0);
-            pose.scale(s, s, 1.0f);
+            McGuiUtils.pushPose(guiGraphics);
+            McGuiUtils.translate(guiGraphics, x0, y1 - s);
+            McGuiUtils.scale(guiGraphics, s, s);
             guiGraphics.fill(0, 0, 1, 1, cornerColor);
-            pose.popPose();
+            McGuiUtils.popPose(guiGraphics);
 
             // Bottom-right
-            pose.pushPose();
-            pose.translate(x1 - s, y1 - s, 0);
-            pose.scale(s, s, 1.0f);
+            McGuiUtils.pushPose(guiGraphics);
+            McGuiUtils.translate(guiGraphics, x1 - s, y1 - s);
+            McGuiUtils.scale(guiGraphics, s, s);
             guiGraphics.fill(0, 0, 1, 1, cornerColor);
-            pose.popPose();
+            McGuiUtils.popPose(guiGraphics);
         }
     }
 

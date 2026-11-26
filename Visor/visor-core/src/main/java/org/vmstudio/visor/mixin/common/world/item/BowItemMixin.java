@@ -1,3 +1,4 @@
+// #!MC-VERSION:: 1.21.3+
 package org.vmstudio.visor.mixin.common.world.item;
 
 import net.minecraft.world.entity.LivingEntity;
@@ -5,19 +6,18 @@ import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.BowItem;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.ProjectileWeaponItem;
-import net.minecraft.world.item.Vanishable;
 import net.minecraft.world.level.Level;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
-import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 /**
  * Shoot power modified
  */
 @Mixin(BowItem.class)
-public abstract class BowItemMixin extends ProjectileWeaponItem implements Vanishable {
+public abstract class BowItemMixin extends ProjectileWeaponItem {
 
 
     @Unique
@@ -33,7 +33,7 @@ public abstract class BowItemMixin extends ProjectileWeaponItem implements Vanis
                                   Level level,
                                   LivingEntity livingEntity,
                                   int i,
-                                  CallbackInfo callbackInfo) {
+                                  CallbackInfoReturnable<Boolean> callbackInfo) {
         if (livingEntity instanceof Player player) {
             visor$lastShooter = player;
         }

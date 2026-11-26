@@ -1,7 +1,11 @@
 package org.vmstudio.visor.core.client.gui.overlays.templates;
 
+import org.vmstudio.visor.api.compatibility.mcversion.gui.McGuiUtils;
+import org.vmstudio.visor.api.compatibility.mcversion.McVersionClientUtils;
 
 
+
+import org.vmstudio.visor.api.client.gui.overlays.options.types.OverlayOptionsVisibility;
 import org.vmstudio.visor.api.client.player.pose.PoseAnchor;
 import org.vmstudio.visor.api.client.gui.overlays.RegisterVROverlayTemplate;
 import org.vmstudio.visor.api.client.gui.overlays.options.OverlayOptionGroup;
@@ -10,7 +14,7 @@ import org.vmstudio.visor.api.client.gui.overlays.options.types.OverlayOptionsPo
 import org.vmstudio.visor.api.client.gui.overlays.framework.template.VROverlayTemplateScreen;
 import org.vmstudio.visor.api.common.addon.VisorAddon;
 import org.vmstudio.visor.core.client.ClientContext;
-import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.world.entity.player.ChatVisiblity;
 import org.jetbrains.annotations.NotNull;
 
@@ -35,10 +39,11 @@ public class VROverlayChat extends VROverlayTemplateScreen {
 
 
     @Override
-    protected void onRender(GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTicks) {
-        minecraft.gui.getChat().render(
+    protected void onRender(GuiGraphicsExtractor guiGraphics, int mouseX, int mouseY, float partialTicks) {
+        McGuiUtils.renderChat(
+                McVersionClientUtils.chat(),
                 guiGraphics,
-                minecraft.gui.getGuiTicks(),0, 0
+                McVersionClientUtils.guiTicks(), 0, 0
         );
     }
 
@@ -49,7 +54,7 @@ public class VROverlayChat extends VROverlayTemplateScreen {
         if(minecraft.isPaused()
                 || ClientContext.overlayManager.getKeyboardAccessor().isVisible()) return false;
 
-        return !minecraft.gui.getChat().trimmedMessages.isEmpty() &&
+        return !McVersionClientUtils.chat().trimmedMessages.isEmpty() &&
                 minecraft.options.chatVisibility().get() != ChatVisiblity.HIDDEN;
     }
 
@@ -65,13 +70,12 @@ public class VROverlayChat extends VROverlayTemplateScreen {
     }
 
     @Override
-    public boolean supportsRetainedTexture() {
-        return true;
-    }
-
-    @Override
     protected @NotNull List<OverlayOptionGroup<?>> createTemplateOptions() {
         return List.of(
+                new OverlayOptionsVisibility(
+                        this,
+                        it -> it.setVisible(true)
+                ),
                 new OverlayOptionsMisc(
                         this,
                         it->{

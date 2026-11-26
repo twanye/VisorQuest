@@ -1,24 +1,23 @@
 package org.vmstudio.visor.core.client.render.helpers;
 
 
-import com.mojang.blaze3d.systems.RenderSystem;
+import org.vmstudio.visor.api.compatibility.mcversion.McVersionUtils;
+import org.vmstudio.visor.api.compatibility.mcversion.render.McGlState;
+import org.vmstudio.visor.api.compatibility.mcversion.render.McShaders;
+import org.vmstudio.visor.api.compatibility.mcversion.render.McVertexBuilder;
+import org.vmstudio.visor.api.compatibility.mcversion.render.McVertexFormats;
 import com.mojang.blaze3d.vertex.*;
+import com.mojang.renderpearl.api.pipeline.PrimitiveTopology;
 import me.phoenixra.atumvr.api.misc.color.AtumColor;
 import org.vmstudio.visor.api.common.utils.VRMathUtils;
-import org.vmstudio.visor.mixin.client.accessors.RenderSystemAccessor;
 import net.minecraft.client.multiplayer.ClientLevel;
-import net.minecraft.client.renderer.GameRenderer;
-import net.minecraft.client.renderer.ShaderInstance;
-import net.minecraft.client.renderer.texture.OverlayTexture;
 import net.minecraft.core.BlockPos;
-import net.minecraft.world.phys.AABB;
+import net.minecraft.util.Mth;
 import net.minecraft.world.phys.Vec3;
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
 import org.joml.Vector3fc;
 
-import java.util.Optional;
-import java.util.function.Supplier;
 
 import static org.vmstudio.visor.core.client.VisorClientImpl.MC;
 
@@ -30,13 +29,12 @@ public class RenderHelper {
     public static boolean isInSolidBlock(Vector3fc in) {
         if (MC.level == null) {
             return false;
-        } else {
-            BlockPos blockpos = BlockPos.containing(new Vec3((Vector3f) in));
-            return MC.level.getBlockState(blockpos).isSolidRender(MC.level, blockpos);
         }
+        BlockPos pos = BlockPos.containing(in.x(), in.y(), in.z());
+        return McVersionUtils.isSolidRender(MC.level.getBlockState(pos), MC.level, pos);
     }
 
-    public static void renderCuboid(BufferBuilder bufferBuilder,
+    public static void renderCuboid(McVertexBuilder bufferBuilder,
                                     Matrix4f poseMatrix,
                                     Vector3fc start,
                                     Vector3fc end,
@@ -74,15 +72,15 @@ public class RenderHelper {
                 {0, 1, 5, 4}
         };
         var faceNormals = new Vector3f[] {
-                forward, forward.mul(-1, new Vector3f()).normalize(),
-                right, right.mul(-1, new Vector3f()).normalize(),
-                up, up.mul(-1, new Vector3f()).normalize()
+                forward, forward.negate(new Vector3f()),
+                right, right.negate(new Vector3f()),
+                up, up.negate(new Vector3f())
         };
 
 
         // --- Render ---
         bufferBuilder.begin(
-                VertexFormat.Mode.QUADS,
+                PrimitiveTopology.QUADS,
                 DefaultVertexFormat.POSITION_COLOR_NORMAL
         );
         for (int f = 0; f < faceIndices.length; f++) {
@@ -95,11 +93,11 @@ public class RenderHelper {
                 addVertex(bufferBuilder, poseMatrix, pos, color, normal);
             }
         }
-        BufferUploader.drawWithShader(bufferBuilder.end());
+        bufferBuilder.draw();
     }
 
 
-    public static void renderFlatQuad(BufferBuilder bufferBuilder,
+    public static void renderFlatQuad(McVertexBuilder bufferBuilder,
                                       Matrix4f poseMatrix,
                                       Vector3fc pos,
                                       float width,
@@ -110,7 +108,7 @@ public class RenderHelper {
         float halfW = width  * 0.5f;
         float halfH = height * 0.5f;
         Vector3f off = new Vector3f(halfW, 0, halfH)
-                .rotateY((float)Math.toRadians(-yaw));
+                .rotateY(-yaw * Mth.DEG_TO_RAD);
         Vector3fc normal = VRMathUtils.UP_VECTOR;
         float xOff = off.x, zOff = off.z;
         float r = color.getRed(), g = color.getGreen(),
@@ -118,15 +116,15 @@ public class RenderHelper {
 
 
         float[][] vertices = {
+                { pos.x() - xOff, pos.y(), pos.z() + zOff },
                 { pos.x() + xOff, pos.y(), pos.z() + zOff },
                 { pos.x() + xOff, pos.y(), pos.z() - zOff },
-                { pos.x() - xOff, pos.y(), pos.z() - zOff },
-                { pos.x() - xOff, pos.y(), pos.z() + zOff }
+                { pos.x() - xOff, pos.y(), pos.z() - zOff }
         };
 
 
         // --- Render ---
-        bufferBuilder.begin(VertexFormat.Mode.QUADS,
+        bufferBuilder.begin(PrimitiveTopology.QUADS,
                 DefaultVertexFormat.POSITION_COLOR_NORMAL);
         for (float[] vertex : vertices) {
             bufferBuilder.vertex(poseMatrix, vertex[0], vertex[1], vertex[2])
@@ -134,7 +132,7 @@ public class RenderHelper {
                     .normal(normal.x(), normal.y(), normal.z())
                     .endVertex();
         }
-        BufferUploader.drawWithShader(bufferBuilder.end());
+        bufferBuilder.draw();
 
     }
 
@@ -161,12 +159,12 @@ public class RenderHelper {
         };
 
         // --- Setup ---
-        RenderSystem.setShader(GameRenderer::getPositionTexShader);
-        RenderSystem.setShaderColor(r, g, b, a);
+        McShaders.use(McShaders.Core.POSITION_TEX);
+        McGlState.setShaderColor(r, g, b, a);
 
         // --- Render ---
-        BufferBuilder buf = Tesselator.getInstance().getBuilder();
-        buf.begin(VertexFormat.Mode.QUADS,
+        McVertexBuilder buf = McVertexBuilder.get();
+        buf.begin(PrimitiveTopology.QUADS,
                 DefaultVertexFormat.POSITION_TEX);
 
         for (float[] vertex : vertices) {
@@ -174,10 +172,10 @@ public class RenderHelper {
                     .uv(vertex[3], vertex[4])
                     .endVertex();
         }
-        BufferUploader.drawWithShader(buf.end());
+        buf.draw();
 
         // --- Restore ---
-        RenderSystem.setShaderColor(1f, 1f, 1f, 1f);
+        McGlState.setShaderColor(1f, 1f, 1f, 1f);
 
     }
 
@@ -187,20 +185,7 @@ public class RenderHelper {
                                                   float displayWidth,
                                                   float displayHeight,
                                                   float size,
-                                                  int light,
-                                                  boolean flipY) {
-        renderDisplayQuadWithLight(poseMatrix, color, GameRenderer::getRendertypeEntityCutoutNoCullShader, displayWidth, displayHeight, size, light, flipY);
-    }
-
-
-
-    public static void renderDisplayQuadWithLight(Matrix4f poseMatrix,
-                                                  AtumColor color,
-                                                  Supplier<ShaderInstance> shader,
-                                                  float displayWidth,
-                                                  float displayHeight,
-                                                  float size,
-                                                  int light,
+                                                  int packedLight,
                                                   boolean flipY) {
         // --- Prepare variables ---
         float red = color.getRed();
@@ -230,45 +215,25 @@ public class RenderHelper {
         };
 
         // --- Setup ---
-        RenderSystem.setShader(shader);
-        MC.gameRenderer.lightTexture().turnOnLightLayer();
-        MC.gameRenderer.overlayTexture().setupOverlayColor();
-
-        // cache old light directions
-        Vector3f[] oldLights = RenderSystemAccessor.getShaderLightDirections();
-        Vector3f old0 = oldLights[0];
-        Vector3f old1 = oldLights[1];
-
-        // force lighting to face forward
-        Vector3f forward = (Vector3f) VRMathUtils.FORWARD_VECTOR;
-        RenderSystem.setShaderLights(forward, forward);
-        RenderSystem.setupShaderLights(RenderSystem.getShader());
-
+        McShaders.use(McShaders.Core.RENDERTYPE_TEXT);
+        McGlState.turnOnLightLayer();
 
         // --- Render ---
-        BufferBuilder buf = Tesselator.getInstance().getBuilder();
-        buf.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.NEW_ENTITY);
+        McVertexBuilder buf = McVertexBuilder.get();
+        buf.begin(PrimitiveTopology.QUADS, McVertexFormats.POSITION_COLOR_TEX_LIGHTMAP);
 
         for (int i = 0; i < 4; i++) {
-            float x = pos[i][0], y = pos[i][1];
-            float u = uv[i][0], v = uv[i][1];
-            buf.vertex(poseMatrix, x, y, 0f)
+            buf.vertex(poseMatrix, pos[i][0], pos[i][1], 0f)
                     .color(red, green, blue, alpha)
-                    .uv(u, v)
-                    .overlayCoords(OverlayTexture.NO_OVERLAY)
-                    .uv2(light)
-                    .normal(0f, 0f, 1f)
+                    .uv(uv[i][0], uv[i][1])
+                    .uv2(packedLight)
                     .endVertex();
         }
 
-        BufferUploader.drawWithShader(buf.end());
+        buf.draw();
 
         // --- Restore ---
-        MC.gameRenderer.lightTexture().turnOffLightLayer();
-        if (old0 != null && old1 != null) {
-            RenderSystem.setShaderLights(old0, old1);
-            RenderSystem.setupShaderLights(RenderSystem.getShader());
-        }
+        McGlState.turnOffLightLayer();
     }
 
 
@@ -292,7 +257,7 @@ public class RenderHelper {
             for (int y = minY; y <= maxY; y++) {
                 for (int z = minZ; z <= maxZ; z++) {
                     mPos.set(x, y, z);
-                    if (!level.getBlockState(mPos).isSolidRender(level, mPos)) {
+                    if (!McVersionUtils.isSolidRender(level.getBlockState(mPos), level, mPos)) {
                         continue;
                     }
                     double dx = Math.max(0.0, Math.max(x - origin.x, origin.x - (x + 1.0)));
@@ -313,40 +278,7 @@ public class RenderHelper {
     }
 
 
-    /**
-     * Searches within a sphere of radius {@code radius} around {@code origin}
-     * for any block whose {@code isSolidRender} is true.
-     *
-     * @param origin the center of the search in world coordinates
-     * @param radius the search radius
-     * @return an Optional containing found opaque block info, or empty if none found
-     */
-    public static Optional<VREffectsHelper.NearestOpaqueBlock> findAnySolidBlock(Vec3 origin, double radius) {
-        ClientLevel level = MC.level;
-        if (level == null) {
-            return Optional.empty();
-        }
-
-        AABB box = new AABB(
-                origin.subtract(radius, radius, radius),
-                origin.add(radius, radius, radius)
-        );
-
-        return BlockPos
-                .betweenClosedStream(box)
-                .filter(pos -> level.getBlockState(pos).isSolidRender(level, pos))
-                .findFirst()
-                .map(pos -> new VREffectsHelper.NearestOpaqueBlock(
-                        1.0F,
-                        level.getBlockState(pos),
-                        pos
-                ));
-    }
-
-
-
-
-    private static void addVertex(BufferBuilder buff,
+    private static void addVertex(McVertexBuilder buff,
                                   Matrix4f mat,
                                   Vector3fc pos,
                                   AtumColor color,

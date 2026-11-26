@@ -1,5 +1,8 @@
 package org.vmstudio.visor.core.client.tasks.types.movement.vehicle;
 
+import org.vmstudio.visor.api.compatibility.mcversion.McEntity;
+import org.vmstudio.visor.api.compatibility.mcversion.McVersionUtils;
+import org.vmstudio.visor.core.common.CommonUtils;
 import lombok.Getter;
 import org.vmstudio.visor.api.common.player.VRPose;
 import org.vmstudio.visor.api.client.player.pose.PlayerPoseType;
@@ -8,19 +11,17 @@ import org.vmstudio.visor.api.client.tasks.TaskType;
 import org.vmstudio.visor.api.client.tasks.VisorTask;
 import org.vmstudio.visor.api.common.HandType;
 import org.vmstudio.visor.api.common.addon.VisorAddon;
-import org.vmstudio.visor.compatibility.ItemClassifier;
+import org.vmstudio.visor.api.compatibility.ItemClassifier;
 import org.vmstudio.visor.core.client.ClientContext;
 import org.vmstudio.visor.core.client.player.VRLocalPlayerImpl;
 import org.vmstudio.visor.core.client.player.pose.LocalPlayerPose;
-import org.vmstudio.visor.core.client.settings.VRClientSettings;
-import org.vmstudio.visor.core.client.tasks.types.movement.TaskRoomSneak;
+import org.vmstudio.visor.api.client.settings.VRClientSettings;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.Mob;
-import net.minecraft.world.entity.animal.horse.AbstractHorse;
-import net.minecraft.world.entity.vehicle.Boat;
-import net.minecraft.world.entity.vehicle.Minecart;
+import net.minecraft.world.entity.animal.equine.AbstractHorse;
+import net.minecraft.world.entity.vehicle.minecart.Minecart;
 import net.minecraft.world.phys.Vec3;
 import org.jetbrains.annotations.NotNull;
 import org.joml.Vector3f;
@@ -36,14 +37,21 @@ public class TaskVehicle extends VisorTask {
     @Getter
     private static TaskVehicle instance;
 
-    public Vec3 premountPosRoom = new Vec3(0.0D, 0.0D, 0.0D);
+    private static final double MINECART_MOVEMENT_FLOOR = 0.001d;
+    private static final float TURN_RATE_GAIN = 200f;
+    private static final float MIN_TURN_RATE_DEG = 10f;
+    private static final double DISMOUNT_LEAN_METERS = 1.0d;
+    private static final int DISMOUNT_SNEAK_TICKS = 5;
 
+
+    public Vec3 premountPosRoom = new Vec3(0.0D, 0.0D, 0.0D);
 
     public float vehicleRotationDeg = 0.0F;
 
     public int rotationCooldown = 0;
     private int minecartTimer = 0;
     public int dismountDelay = 0;
+    private int dismountSneakTicks = 0;
 
     public TaskVehicle(@NotNull VisorAddon owner) {
         super(owner);
@@ -81,6 +89,7 @@ public class TaskVehicle extends VisorTask {
     @Override
     protected void onClear(LocalPlayer player) {
         this.minecartTimer = 3;
+        this.dismountSneakTicks = 0;
     }
 
     @Override
@@ -118,7 +127,11 @@ public class TaskVehicle extends VisorTask {
     }
 
     public void onStopRiding() {
-        TaskRoomSneak.getInstance().setSneakTimer(0);
+        this.dismountSneakTicks = 0;
+    }
+
+    public boolean isDismountRequested() {
+        return dismountSneakTicks > 0;
     }
 
     private void handleAutoDismount(LocalPlayer player) {
@@ -126,23 +139,25 @@ public class TaskVehicle extends VisorTask {
         if (!canAutoDismount(player)) return;
 
 
-        Vector3fc mountPos = player.getVehicle().position().toVector3f();
         Vector3fc headPivot = ClientContext.localPlayer
-                .getPoseData(PlayerPoseType.TICK)
+                .getPoseData(PlayerPoseType.ROOM)
                 .getHeadPivot();
 
-        double dx = headPivot.x() - mountPos.x();
-        double dz = headPivot.z() - mountPos.z();
+        double dx = headPivot.x() - premountPosRoom.x;
+        double dz = headPivot.z() - premountPosRoom.z;
         double distance = Math.sqrt(dx * dx + dz * dz);
 
-        if (distance > 1.0 && TaskRoomSneak.getInstance().getSneakTimer() == 0) {
-            TaskRoomSneak.getInstance().setSneakTimer(5);
+        if (distance > DISMOUNT_LEAN_METERS) {
+            this.dismountSneakTicks = DISMOUNT_SNEAK_TICKS;
         }
     }
 
     private void tickTimers() {
         if (dismountDelay > 0) {
             --dismountDelay;
+        }
+        if (dismountSneakTicks > 0) {
+            --dismountSneakTicks;
         }
         if (rotationCooldown > 0) {
             --rotationCooldown;
@@ -175,8 +190,8 @@ public class TaskVehicle extends VisorTask {
         final Vec3 deltaMovement = vehicle.getDeltaMovement();
         final double horizontalSpeed = new Vec3(deltaMovement.x, 0.0, deltaMovement.z).length();
 
-        float maxStepDeg = 200.0F * (float) (horizontalSpeed * horizontalSpeed);
-        maxStepDeg = Math.max(maxStepDeg, 10.0F);
+        float maxStepDeg = TURN_RATE_GAIN * (float) (horizontalSpeed * horizontalSpeed);
+        maxStepDeg = Math.max(maxStepDeg, MIN_TURN_RATE_DEG);
 
         deltaDeg = Mth.clamp(deltaDeg, -maxStepDeg, maxStepDeg);
 
@@ -192,22 +207,23 @@ public class TaskVehicle extends VisorTask {
     }
 
     private float getMinecartRenderYawDeg(Minecart minecart) {
-        final Vec3 delta = new Vec3(
-                minecart.getX() - minecart.xOld,
-                minecart.getY() - minecart.yOld,
-                minecart.getZ() - minecart.zOld
-        );
-        final float yawDeg = (float) Math.toDegrees(Mth.atan2(-delta.x, delta.z));
-        return shouldMinecartTurnView(minecart) ? -180.0F + yawDeg : vehicleRotationDeg;
+        final Vec3 delta = minecartDelta(minecart);
+        if (delta.length() <= MINECART_MOVEMENT_FLOOR) {
+            return vehicleRotationDeg;
+        }
+        return CommonUtils.yawFromDirection(delta) - 180;
     }
 
     private boolean shouldMinecartTurnView(Minecart minecart) {
-        final Vec3 delta = new Vec3(
+        return minecartDelta(minecart).length() > MINECART_MOVEMENT_FLOOR;
+    }
+
+    private Vec3 minecartDelta(Minecart minecart) {
+        return new Vec3(
                 minecart.getX() - minecart.xOld,
                 minecart.getY() - minecart.yOld,
                 minecart.getZ() - minecart.zOld
         );
-        return delta.length() > 0.001D;
     }
 
     private float rotationDeltaDeg(float targetDeg, float currentDeg) {
@@ -229,13 +245,13 @@ public class TaskVehicle extends VisorTask {
         if (player == null) return null;
 
         final Entity entity = player.getVehicle();
-        if (entity instanceof AbstractHorse || entity instanceof Boat) {
+        if (entity instanceof AbstractHorse || McVersionUtils.isBoat(entity)) {
             if (player.zza <= 0) return null;
             return ClientContext.localPlayer
                     .getRotationElement(PlayerPoseType.TICK)
                     .getDirection();
         }
-        if (entity instanceof Mob mob && mob.isControlledByLocalInstance()) {
+        if (entity instanceof Mob mob && McEntity.isLocallyControlled(mob)) {
             final HandType handWithFood = ItemClassifier.FOOD_STICK
                     .is(player.getMainHandItem().getItem())
                     ? HandType.MAIN

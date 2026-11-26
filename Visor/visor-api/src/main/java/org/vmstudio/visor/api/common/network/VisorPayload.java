@@ -1,7 +1,9 @@
 package org.vmstudio.visor.api.common.network;
 
 import net.minecraft.network.FriendlyByteBuf;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
+
+import java.nio.charset.StandardCharsets;
 
 public interface VisorPayload {
 
@@ -12,10 +14,10 @@ public interface VisorPayload {
 
     void onWrite(FriendlyByteBuf buffer);
 
+    // drains the whole remaining buffer,
+    // only use as the last field of a payload
     static String readString(FriendlyByteBuf buffer){
-        byte[] stringBytes = new byte[buffer.readableBytes()];
-        buffer.readBytes(stringBytes);
-        return new String(stringBytes);
+        return buffer.readCharSequence(buffer.readableBytes(), StandardCharsets.UTF_8).toString();
     }
 
     byte payloadId();

@@ -1,12 +1,27 @@
 #version 330 core
+#ifdef VISOR_SPIRV
+#extension GL_ARB_separate_shader_objects : require
+#extension GL_ARB_explicit_attrib_location : require
+#define VISOR_LOCATION(n) layout(location = n)
+#else
+#define VISOR_LOCATION(n)
+#endif
 
 
+#ifdef VISOR_UBO
+// the json every older node reads gives this block its member order
+layout(std140) uniform VisorUniforms {
+    float uTime;
+    vec3 uColor;
+};
+#else
 uniform float uTime;
 uniform vec3 uColor;
+#endif
 
 
-in vec2 texCoordinates;
-out vec4 fragColor;
+VISOR_LOCATION(0) in vec2 texCoord0;
+VISOR_LOCATION(0) out vec4 fragColor;
 
 
 const float maxDist = 0.6;    // Maximum distance in our scaled space.
@@ -17,7 +32,7 @@ const float fadeWidth = 0.3; // The width over which the wave fades out as it ne
 void main() {
     // Remap UVs from [0,1] to a centered coordinate system.
     // The factor 0.6 controls the overall size of the effect.
-    vec2 Scaled = (texCoordinates * 2.0 - vec2(1.0)) * 0.6;
+    vec2 Scaled = (texCoord0 * 2.0 - vec2(1.0)) * 0.6;
     // Compute a square-like distance (infinity norm) so the effect is square-shaped.
     float SquareDist = max(abs(Scaled.x), abs(Scaled.y));
 

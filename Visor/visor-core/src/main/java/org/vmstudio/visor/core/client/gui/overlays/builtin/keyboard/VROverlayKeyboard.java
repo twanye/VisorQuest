@@ -1,7 +1,7 @@
 package org.vmstudio.visor.core.client.gui.overlays.builtin.keyboard;
 
 import lombok.Getter;
-import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 import org.jetbrains.annotations.NotNull;
@@ -21,7 +21,6 @@ import org.vmstudio.visor.api.common.addon.component.ComponentPriority;
 import org.vmstudio.visor.api.common.eventbus.listener.VREventListener;
 import org.vmstudio.visor.core.client.ClientContext;
 import org.vmstudio.visor.core.client.gui.screens.VRKeyboardScreen;
-import org.vmstudio.visor.core.client.settings.VRClientSettings;
 
 import java.util.List;
 
@@ -75,7 +74,7 @@ public class VROverlayKeyboard extends VROverlayScreenInScreen<VRKeyboardScreen>
 
 
     @Override
-    protected void onPreRender(GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTicks) {
+    protected void onPreRender(GuiGraphicsExtractor guiGraphics, int mouseX, int mouseY, float partialTicks) {
         if(ClientContext.cursorHandler.getFocusedOverlayScreen() != this){
             getScreen().clearPress();
         }
@@ -153,11 +152,6 @@ public class VROverlayKeyboard extends VROverlayScreenInScreen<VRKeyboardScreen>
         return true;
     }
 
-    @Override
-    public boolean supportsRetainedTexture() {
-        return true;
-    }
-
     public void setVisible(boolean newVisibility,
                            @Nullable Screen attachedTo) {
         boolean changedVisibility = newVisibility != shown;
@@ -222,7 +216,7 @@ public class VROverlayKeyboard extends VROverlayScreenInScreen<VRKeyboardScreen>
     }
 
     public @NotNull List<KeyboardLayout> getEnabledLayoutIds() {
-        List<KeyboardLayout> enabledLayouts = VRClientSettings.getEffectiveKeyboardLayouts();
+        List<KeyboardLayout> enabledLayouts = KeyboardLayouts.getEffectiveSelected();
         if (enabledLayouts.isEmpty()) {
             return List.of(KeyboardLayout.ENGLISH);
         }

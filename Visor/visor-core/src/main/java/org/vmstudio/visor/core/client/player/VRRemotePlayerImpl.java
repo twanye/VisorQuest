@@ -19,6 +19,8 @@ import org.vmstudio.visor.core.common.player.PoseHistoryImpl;
 import net.minecraft.client.player.RemotePlayer;
 import org.jetbrains.annotations.NotNull;
 
+import java.lang.Math;
+
 public class VRRemotePlayerImpl implements VRRemotePlayer {
     private final RemotePlayerPose roomPose;
 
@@ -95,6 +97,21 @@ public class VRRemotePlayerImpl implements VRRemotePlayer {
     }
 
 
+    // same as the constructor's init, but for a player that already exists
+    public void receivedStartTracking(RemotePlayer mcPlayer,
+                                      VROtherStartTrackingPayloadToClient data){
+        receivedPosePacket(mcPlayer, data.poseBuf().pose());
+        if(!bodyType.getId().equals(data.bodyTypeBuf().bodyType())){
+            receivedBodyTypePacket(data.bodyTypeBuf().bodyType());
+        }
+        receivedLeftHandedPacket(data.leftHandedBuf().leftHanded());
+        receivedRotationYPacket(data.rotationYBuf().rotationY());
+        receivedWorldScalePacket(data.worldScaleBuf().worldScale());
+        receivedFullHeightPacket(data.fullHeightBuf().fullHeight());
+        receivedGunAngle(data.gunAngleBuf().gunAngle());
+        receivedOverlayFocusedPacket(data.overlayFocusedBuf().overlayFocused());
+    }
+
     public void receivedPosePacket(RemotePlayer mcPlayer,
                                    PoseDataBuffer poseBuffer){
         this.mcPlayer = mcPlayer;
@@ -142,6 +159,12 @@ public class VRRemotePlayerImpl implements VRRemotePlayer {
     public void receivedFullHeightPacket(float fullHeight){
         this.fullHeight = fullHeight;
     }
+
+    @Override
+    public float getModelScale(@NotNull PlayerPoseType poseType) {
+        return getFullHeightScale();
+    }
+
     public void receivedGunAngle(float gunAngle){
         this.gunAngle = gunAngle;
     }
@@ -217,11 +240,11 @@ public class VRRemotePlayerImpl implements VRRemotePlayer {
         //Interpolated Rotation
         float rotationPre = this.prevPose.getRotationY();
         float rotationPost = this.pose.getRotationY();
-        if (java.lang.Math.abs(rotationPost - rotationPre) > java.lang.Math.PI) {
+        if (Math.abs(rotationPost - rotationPre) > Math.PI) {
             if (rotationPost > rotationPre) {
-                rotationPre = (float) (rotationPre + (java.lang.Math.PI * 2));
+                rotationPre = (float) (rotationPre + (Math.PI * 2));
             } else {
-                rotationPost = (float) (rotationPost + (java.lang.Math.PI * 2));
+                rotationPost = (float) (rotationPost + (Math.PI * 2));
             }
         }
         float rotationPartial = rotationPost * partialTicks
@@ -247,7 +270,7 @@ public class VRRemotePlayerImpl implements VRRemotePlayer {
         );
         Matrix4f hmdRotationPartial = hmdQ.get(new Matrix4f());
         Vector3f hmdDirPartial = hmdQ.transform(
-                VRMathUtils.BACK_VECTOR, new Vector3f()
+                VRMathUtils.FORWARD_VECTOR, new Vector3f()
         );
 
         //main hand
@@ -262,7 +285,7 @@ public class VRRemotePlayerImpl implements VRRemotePlayer {
         );
         Matrix4f mainHandRotationPartial = mainHandQ.get(new Matrix4f());
         Vector3f mainHandDirPartial = mainHandQ.transform(
-                VRMathUtils.BACK_VECTOR, new Vector3f()
+                VRMathUtils.FORWARD_VECTOR, new Vector3f()
         );
 
         //offhand
@@ -277,7 +300,7 @@ public class VRRemotePlayerImpl implements VRRemotePlayer {
         );
         Matrix4f offhandRotationPartial = offhandQ.get(new Matrix4f());
         Vector3f offhandDirPartial = offhandQ.transform(
-                VRMathUtils.BACK_VECTOR, new Vector3f()
+                VRMathUtils.FORWARD_VECTOR, new Vector3f()
         );
 
         //Applying
@@ -294,6 +317,13 @@ public class VRRemotePlayerImpl implements VRRemotePlayer {
                 originPartial,
                 worldScalePartial,
                 rotationPartial
+        );
+
+        this.renderPose.getTrackers().update(
+                poseBufferReceived.trackers(), rotationYReceived
+        );
+        this.renderPose.getHands().update(
+                poseBufferReceived.hands(), rotationYReceived
         );
     }
 

@@ -1,14 +1,31 @@
 package org.vmstudio.visor.mixin.common.player;
 
+//? if >=1.21.6 {
+import net.minecraft.world.level.storage.ValueInput;
+import net.minecraft.world.level.storage.ValueOutput;
+//?} else {
+/*import org.vmstudio.visor.api.compatibility.mcversion.McNbt;
+*///?}
+import org.vmstudio.visor.api.compatibility.mcversion.McVersionUtils;
+import org.vmstudio.visor.api.compatibility.mcversion.McUseAnim;
 import com.llamalad7.mixinextras.injector.wrapmethod.WrapMethod;
 import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
+import com.llamalad7.mixinextras.sugar.Local;
+import net.minecraft.tags.DamageTypeTags;
 import org.vmstudio.visor.api.VisorAPI;
+import org.vmstudio.visor.api.common.HandType;
+import org.vmstudio.visor.api.common.utils.VRMathUtils;
+import org.vmstudio.visor.api.compatibility.ItemClassifier;
 import org.vmstudio.visor.api.server.VRServerSettings;
 import org.vmstudio.visor.api.server.player.VRServerPlayer;
 import org.vmstudio.visor.extensions.common.ServerPlayerExtension;
-import net.minecraft.core.particles.ItemParticleOption;
+//? if >=1.21.11 {
+import net.minecraft.core.particles.ParticleOptions;
+//?}
 import net.minecraft.core.particles.ParticleTypes;
-import net.minecraft.nbt.CompoundTag;
+//? if <1.21.6 {
+/*import net.minecraft.nbt.CompoundTag;
+*///?}
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
@@ -18,12 +35,15 @@ import net.minecraft.world.InteractionHand;
 import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.Pose;
 import net.minecraft.world.entity.item.ItemEntity;
-import net.minecraft.world.entity.projectile.AbstractArrow;
+import net.minecraft.world.entity.projectile.arrow.AbstractArrow;
+import net.minecraft.world.entity.projectile.Projectile;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.phys.Vec3;
 import org.joml.Vector3f;
+import org.joml.Vector3fc;
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
@@ -33,7 +53,7 @@ import org.spongepowered.asm.mixin.injection.At.Shift;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
-import org.spongepowered.asm.mixin.injection.callback.LocalCapture;
+
 
 @Mixin(ServerPlayer.class)
 public abstract class ServerPlayerMixin
@@ -49,6 +69,9 @@ public abstract class ServerPlayerMixin
     @Unique
     private int visor$offhandSlotCached;
 
+    @Unique
+    private static final double SHIELD_COVER_DOT = 0.5;
+
 
 
 
@@ -57,22 +80,33 @@ public abstract class ServerPlayerMixin
     \* **************** */
 
 
+    //? if >=1.21.6 {
     @WrapMethod(method = "readAdditionalSaveData")
+    protected void visor$wrapReadData(ValueInput input, Operation<Void> original) {
+        original.call(input);
+        visor$rotationYCached = input.getFloatOr("visor$rotation_y", 0.0F);
+        visor$offhandSlotCached = input.getIntOr("visor$offhand_slot", -1);
+    }
+    @WrapMethod(method = "addAdditionalSaveData")
+    protected void visor$wrapSaveData(ValueOutput output, Operation<Void> original) {
+        original.call(output);
+        output.putFloat("visor$rotation_y", visor$rotationYCached);
+        output.putInt("visor$offhand_slot", visor$offhandSlotCached);
+    }
+    //?} else {
+    /*@WrapMethod(method = "readAdditionalSaveData")
     protected void visor$wrapReadData(CompoundTag compound, Operation<Void> original) {
         original.call(compound);
-        visor$rotationYCached = compound.getFloat("visor$rotation_y");
-        if(compound.contains("visor$offhand_slot")){
-            visor$offhandSlotCached = compound.getInt("visor$offhand_slot");
-        }else{
-            visor$offhandSlotCached = -1;
-        }
+        visor$rotationYCached = McNbt.getFloat(compound, "visor$rotation_y", 0.0F);
+        visor$offhandSlotCached = McNbt.getInt(compound, "visor$offhand_slot", -1);
     }
     @WrapMethod(method = "addAdditionalSaveData")
     protected void visor$wrapSaveData(CompoundTag compound, Operation<Void> original) {
         original.call(compound);
         compound.putFloat("visor$rotation_y", visor$rotationYCached);
-        compound.putFloat("visor$offhand_slot", visor$offhandSlotCached);
+        compound.putInt("visor$offhand_slot", visor$offhandSlotCached);
     }
+    *///?}
 
     /* *************** *\
   //--------OTHER--------\\
@@ -109,13 +143,15 @@ public abstract class ServerPlayerMixin
     }
 
 
-    @Inject(at = @At(value = "INVOKE", target = "Lnet/minecraft/world/level/Level;addFreshEntity(Lnet/minecraft/world/entity/Entity;)Z", shift = Shift.BEFORE), method = "drop(Lnet/minecraft/world/item/ItemStack;ZZ)Lnet/minecraft/world/entity/item/ItemEntity;",
-        locals = LocalCapture.CAPTURE_FAILHARD)
+    //? if <1.21.5 {
+    
+     /*//keep @Local without variable name, to search by type
+     @Inject(at = @At(value = "INVOKE", target = "Lnet/minecraft/world/level/Level;addFreshEntity(Lnet/minecraft/world/entity/Entity;)Z", shift = Shift.BEFORE), method = "drop(Lnet/minecraft/world/item/ItemStack;ZZ)Lnet/minecraft/world/entity/item/ItemEntity;")
     public void visor$vrItemDrop(ItemStack itemStack,
                                 boolean dropAround,
                                 boolean includeName,
                                 CallbackInfoReturnable<ItemEntity> info,
-                                ItemEntity itemEntity) {
+                                @Local ItemEntity itemEntity) {
         VRServerPlayer vrPlayer = visor$getVrPlayer();
         if (vrPlayer == null
                 || dropAround) {
@@ -137,16 +173,29 @@ public abstract class ServerPlayerMixin
                 handPos.z() + itemEntity.getDeltaMovement().z()
         );
     }
+    *///?}
 
-    @Inject(at = @At("HEAD"), method = "hurt", cancellable = true)
+    //? if >=1.21.2 {
+    @Inject(at = @At("HEAD"), method = "hurtServer", cancellable = true)
+    public void visor$canGetHurtByPlayer(ServerLevel level, DamageSource damageSource, float f, CallbackInfoReturnable<Boolean> cir) {
+        visor$blockPvpDamage(damageSource, cir);
+    }
+    //?} else {
+    /*@Inject(at = @At("HEAD"), method = "hurt", cancellable = true)
     public void visor$canGetHurtByPlayer(DamageSource damageSource, float f, CallbackInfoReturnable<Boolean> cir) {
+        visor$blockPvpDamage(damageSource, cir);
+    }
+    *///?}
+
+    @Unique
+    private void visor$blockPvpDamage(DamageSource damageSource, CallbackInfoReturnable<Boolean> cir) {
         Entity entity = damageSource.getEntity();
         ServerPlayer damager = null;
 
         if (entity instanceof ServerPlayer) {
             damager = (ServerPlayer) entity;
-        } else if ((entity instanceof AbstractArrow && (((AbstractArrow) entity).getOwner() instanceof ServerPlayer))) {
-            damager = (ServerPlayer) ((AbstractArrow) entity).getOwner();
+        } else if (entity instanceof AbstractArrow arrow && arrow.getOwner() instanceof ServerPlayer shooter) {
+            damager = shooter;
         }
         if(damager == null){
             return;
@@ -160,42 +209,69 @@ public abstract class ServerPlayerMixin
         damagerHasVR = damagerPlayer != null;
         victimHasVR = thisPlayer != null;
 
-        boolean blockedDamage = false;
-        String blockedDamageCase = "";
+        boolean bothInVR = damagerHasVR && victimHasVR;
+        boolean oneInVR = damagerHasVR != victimHasVR;
 
-        if (!VRServerSettings.isPvpVRvsVR()
-                && damagerHasVR && victimHasVR) {
-            blockedDamage = true;
-            blockedDamageCase = "Server: cancelled VR vs VR player damage";
-
-        } else if (!VRServerSettings.isPvpVRvsVanilla()
-                && ((!damagerHasVR && victimHasVR) || (damagerHasVR && !victimHasVR))) {
-            blockedDamage = true;
-            blockedDamageCase = "Server: cancelled NonVR vs VR player damage";
+        boolean blocked = (bothInVR && !VRServerSettings.isPvpVRvsVR())
+                || (oneInVR && !VRServerSettings.isPvpVRvsVanilla());
+        if (!blocked) {
+            return;
         }
 
-        if(!blockedDamage) return;
-
-        if(VRServerSettings.isNotifyPvpBlocked()) {
-            damager.sendSystemMessage(Component.literal(blockedDamageCase));
+        if (VRServerSettings.isNotifyPvpBlocked()) {
+            damager.sendSystemMessage(Component.literal(bothInVR
+                    ? "Server: cancelled VR vs VR player damage"
+                    : "Server: cancelled NonVR vs VR player damage"));
         }
         cir.setReturnValue(false);
     }
 
+    //? if >=1.21.11 {
     @Override
+    protected int visor$sweepParticles(ServerLevel level, ParticleOptions particle,
+                                       double x, double y, double z, int count,
+                                       double xDist, double yDist, double zDist, double speed,
+                                       Operation<Integer> original) {
+        VRServerPlayer vrPlayer = visor$getVrPlayer();
+        if (vrPlayer == null) {
+            return original.call(level, particle, x, y, z, count, xDist, yDist, zDist, speed);
+        }
+        var handPose = vrPlayer.getPoseData().getHand(
+                visor$attackHand(vrPlayer)
+        );
+
+        var handDir = handPose.getDirection();
+        // Must use double value to not cause crash on type conversion
+        Vec3 handPos = handPose.getPositionVec3();
+
+        float handAngle = (float) Mth.atan2(-handDir.x(), handDir.z());
+        double offsetX = -Mth.sin(handAngle);
+        double offsetZ = Mth.cos(handAngle);
+
+        return original.call(level, particle,
+                handPos.x + offsetX,
+                handPos.y,
+                handPos.z + offsetZ,
+                0,
+                offsetX, 0.0D, offsetZ,
+                0.0D);
+    }
+    //?} else {
+    /*@Override
     protected void visor$wrapSweepAttack(Operation<Void> original) {
         VRServerPlayer vrPlayer = visor$getVrPlayer();
 
         if (vrPlayer != null) {
-            var mainHand = vrPlayer.getPoseData().getMainHand();
+            var handPose = vrPlayer.getPoseData().getHand(
+                    visor$attackHand(vrPlayer)
+            );
 
-            var handDir = mainHand.getDirection();
-            var handPos = mainHand.getPosition();
+            var handDir = handPose.getDirection();
+            var handPos = handPose.getPosition();
 
-
-            float handAngle = (float) Math.toDegrees(Mth.atan2(handDir.x(), -handDir.z()));
-            double offsetX = -Mth.sin(handAngle * ((float) Math.PI / 180F));
-            double offsetZ = Mth.cos(handAngle * ((float) Math.PI / 180F));
+            float handAngle = (float) Mth.atan2(-handDir.x(), handDir.z());
+            double offsetX = -Mth.sin(handAngle);
+            double offsetZ = Mth.cos(handAngle);
 
             if (this.level() instanceof ServerLevel) {
                 ((ServerLevel) this.level()).sendParticles(
@@ -212,8 +288,109 @@ public abstract class ServerPlayerMixin
             original.call();
         }
     }
+    *///?}
 
 
+
+    @Override
+    @Unique
+    public boolean visor$poseBlocks(DamageSource damageSource, boolean alreadyBlocked) {
+        visor$poseBlockItem = null;
+        visor$poseBlockHand = null;
+
+        ServerPlayer player = visor$getPlayer();
+        if (alreadyBlocked
+                || player.isBlocking()
+                || damageSource.is(DamageTypeTags.BYPASSES_SHIELD)
+                || !VRServerSettings.isRoomscaleShieldBlocking()) {
+            return false;
+        }
+        Vec3 threatPos = damageSource.getSourcePosition();
+        if (threatPos == null) {
+            return false;
+        }
+        if (damageSource.getDirectEntity() instanceof AbstractArrow arrow
+                && arrow.getPierceLevel() > 0) {
+            return false;
+        }
+        VRServerPlayer vrPlayer = visor$getVrPlayer();
+        if (vrPlayer == null || !vrPlayer.hasPoseData()) {
+            return false;
+        }
+
+        boolean fromProjectile = false;
+        Entity direct = damageSource.getDirectEntity();
+        if (direct != null && threatPos == direct.position()) {
+            // the reported source pos aliases the attacker's live position, use its hull instead
+            fromProjectile = direct instanceof Projectile;
+            threatPos = direct.getBoundingBox().getCenter()
+                    .subtract(direct.getDeltaMovement().normalize());
+        }
+
+        for (HandType hand : HandType.values()) {
+            ItemStack stack = player.getItemBySlot(
+                    hand == HandType.MAIN
+                            ? EquipmentSlot.MAINHAND
+                            : EquipmentSlot.OFFHAND
+            );
+            if (!visor$isShield(stack)
+                    || McVersionUtils.isOnCooldown(player, stack)) {
+                continue;
+            }
+            if (visor$shieldCovers(vrPlayer, hand, threatPos, fromProjectile)) {
+                visor$poseBlockItem = stack;
+                visor$poseBlockHand = hand.asInteractionHand();
+                return true;
+            }
+        }
+        return false;
+    }
+
+    @Unique
+    private boolean visor$shieldCovers(VRServerPlayer vrPlayer, HandType hand,
+                                       Vec3 threatPos, boolean fromProjectile) {
+        boolean palmFacesLeft = (hand == HandType.MAIN) == vrPlayer.isLeftHanded();
+        Vector3fc palmAxis = palmFacesLeft
+                ? VRMathUtils.LEFT_VECTOR
+                : VRMathUtils.RIGHT_VECTOR;
+
+        var handPose = vrPlayer.getPoseData().getHand(hand);
+        Vec3 shieldFacing = handPose.transformDirectionVec3(palmAxis);
+
+        double coverage;
+        if (fromProjectile) {
+            coverage = shieldFacing.dot(
+                    threatPos.subtract(handPose.getPositionVec3()).normalize()
+            );
+        } else {
+            Vec3 towardThreat = threatPos.subtract(visor$getPlayer().position())
+                    .multiply(1, 0, 1).normalize();
+            coverage = shieldFacing.multiply(1, 0, 1).normalize().dot(towardThreat);
+        }
+        return coverage > SHIELD_COVER_DOT;
+    }
+
+    @Unique
+    private boolean visor$isShield(ItemStack stack) {
+        return !stack.isEmpty()
+                && (ItemClassifier.SHIELD.is(stack)
+                || McVersionUtils.useAnimation(stack) == McUseAnim.BLOCK);
+    }
+
+    //? if >=26.1 {
+    @Override
+    protected void visor$noAttackWhileShieldUp(Entity target, CallbackInfo ci) {
+    //?} else {
+    /*@Inject(method = "attack", at = @At("HEAD"), cancellable = true)
+    private void visor$noAttackWhileShieldUp(Entity target, CallbackInfo ci) {
+    *///?}
+        if (VRServerSettings.isAttacksWhileBlocking()) {
+            return;
+        }
+        if (visor$getVrPlayer() != null && visor$getPlayer().isBlocking()) {
+            ci.cancel();
+        }
+    }
 
     @Override
     protected void visor$spawnVRItemParticles(ItemStack itemStack,
@@ -224,6 +401,11 @@ public abstract class ServerPlayerMixin
             return;
         }
         ci.cancel();
+        //? if >=26.1 {
+        if (itemStack.isEmpty()) {
+            return;
+        }
+        //?}
 
         VRServerPlayer vrPlayer = VisorAPI.server().getVRPlayer(player);
         for (int i = 0; i < count; ++i) {
@@ -276,10 +458,7 @@ public abstract class ServerPlayerMixin
                     .add(0,-0.8,0);
             if (this.level() instanceof ServerLevel) {
                 ((ServerLevel)this.level()).sendParticles(
-                        new ItemParticleOption(
-                                ParticleTypes.ITEM,
-                                itemStack
-                        ),
+                        McVersionUtils.itemParticle(itemStack),
                         particlePos.x,
                         particlePos.y,
                         particlePos.z,
@@ -290,10 +469,7 @@ public abstract class ServerPlayerMixin
                 );
             }else {
                 this.level().addParticle(
-                        new ItemParticleOption(
-                                ParticleTypes.ITEM,
-                                itemStack
-                        ),
+                        McVersionUtils.itemParticle(itemStack),
                         particlePos.x,
                         particlePos.y,
                         particlePos.z,
@@ -333,6 +509,17 @@ public abstract class ServerPlayerMixin
     @Override
     public int visor$getOffhandSlotCached() {
         return visor$offhandSlotCached;
+    }
+
+    @Unique
+    @Override
+    public ItemStack visor$getPoseBlockItem() {
+        return visor$poseBlockItem;
+    }
+    @Unique
+    @Override
+    public InteractionHand visor$getPoseBlockHand() {
+        return visor$poseBlockHand;
     }
 
 }

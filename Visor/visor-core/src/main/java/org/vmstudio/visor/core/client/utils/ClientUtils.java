@@ -1,39 +1,46 @@
 package org.vmstudio.visor.core.client.utils;
 
+import org.vmstudio.visor.api.compatibility.mcversion.McVersionClientUtils;
+import org.vmstudio.visor.api.compatibility.mcversion.render.McRenderUtils;
+import org.vmstudio.visor.api.compatibility.mcversion.gui.McGuiUtils;
 import com.mojang.blaze3d.pipeline.RenderTarget;
 import com.mojang.realmsclient.RealmsMainScreen;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.Screenshot;
-import net.minecraft.client.gui.screens.GenericDirtMessageScreen;
 import net.minecraft.client.gui.screens.TitleScreen;
 import net.minecraft.client.gui.screens.multiplayer.JoinMultiplayerScreen;
-import net.minecraft.client.renderer.LevelRenderer;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
-import net.minecraft.world.level.BlockAndTintGetter;
+import net.minecraft.world.level.LevelReader;
 import org.joml.Vector2f;
+import org.vmstudio.visor.api.client.settings.VRClientSettings;
+import org.vmstudio.visor.api.common.player.VRPlayer;
+import org.vmstudio.visor.core.client.ClientContext;
+import org.vmstudio.visor.core.client.VisorState;
 
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
 public class ClientUtils {
+    public static boolean isFullscreenInVr() {
+        return VisorState.get().isActive()
+                && McVersionClientUtils.isFullscreen(Minecraft.getInstance());
+    }
+
     public static Vector2f getPlayAreaSize() {
 
         return new Vector2f(2, 2);
     }
 
-    public static int getCombinedLightWithMin(BlockAndTintGetter lightReader, BlockPos pos, int minLight) {
-        int i = LevelRenderer.getLightColor(lightReader, pos);
-        int j = i >> 4 & 15;
-
-        if (j < minLight) {
-            i = i & -256;
-            i = i | minLight << 4;
+    public static int packedLightWithFloor(LevelReader level, BlockPos pos, int minBlockLight) {
+        int packed = McRenderUtils.packedLight(level, pos);
+        int blockLight = (packed >> 4) & 0xF;
+        if (blockLight >= minBlockLight) {
+            return packed;
         }
-
-        return i;
+        return (packed & ~0xFF) | (minBlockLight << 4);
     }
 
     public static void updateKeyMappingState(KeyMapping keyMapping,
@@ -101,26 +108,12 @@ public class ClientUtils {
         return wrappedLines;
     }
 
-    public static int getCombinedLight(BlockAndTintGetter lightReader,
-                                       BlockPos pos,
-                                       int minLight) {
-        int i = LevelRenderer.getLightColor(lightReader, pos);
-        int j = i >> 4 & 15;
-
-        if (j < minLight) {
-            i = i & -256;
-            i = i | minLight << 4;
-        }
-
-        return i;
-    }
-
     public static void takeScreenshot(RenderTarget fb) {
         Minecraft minecraft = Minecraft.getInstance();
         Screenshot.grab(minecraft.gameDirectory, fb, (text) ->
         {
             minecraft.execute(() -> {
-                minecraft.gui.getChat().addMessage(text);
+                McGuiUtils.addChatMessage(McVersionClientUtils.chat(), text);
             });
         });
     }
@@ -129,24 +122,25 @@ public class ClientUtils {
         Minecraft minecraft = Minecraft.getInstance();
         if (minecraft.level == null) return;
         boolean bl = minecraft.isLocalServer();
-        boolean bl2 = minecraft.isConnectedToRealms();
+        boolean bl2 = McVersionClientUtils.isConnectedToRealms(minecraft);
         var connection = minecraft.getConnection();
         if(connection != null){
             connection.getConnection().disconnect(Component.literal(message));
         }
         if (bl) {
-            minecraft.clearLevel(new GenericDirtMessageScreen(Component.translatable("visor.messages.saving_world", message)));
+            McVersionClientUtils.clearLevel(minecraft,
+                    McVersionClientUtils.savingLevelScreen(Component.translatable("visor.messages.saving_world", message)));
         } else {
-            minecraft.clearLevel();
+            McVersionClientUtils.clearLevel(minecraft);
         }
 
         TitleScreen titleScreen = new TitleScreen();
         if (bl) {
-            minecraft.setScreen(titleScreen);
+            McVersionClientUtils.setScreen(titleScreen);
         } else if (bl2) {
-            minecraft.setScreen(new RealmsMainScreen(titleScreen));
+            McVersionClientUtils.setScreen(new RealmsMainScreen(titleScreen));
         } else {
-            minecraft.setScreen(new JoinMultiplayerScreen(titleScreen));
+            McVersionClientUtils.setScreen(new JoinMultiplayerScreen(titleScreen));
         }
     }
 }

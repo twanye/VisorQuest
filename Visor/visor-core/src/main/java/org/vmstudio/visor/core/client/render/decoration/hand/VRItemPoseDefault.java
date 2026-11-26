@@ -1,28 +1,47 @@
 package org.vmstudio.visor.core.client.render.decoration.hand;
 
 
+import org.vmstudio.visor.api.compatibility.mcversion.render.McRenderUtils;
+import org.vmstudio.visor.api.compatibility.mcversion.McUseAnim;
+import org.vmstudio.visor.api.compatibility.mcversion.McVersionUtils;
+import org.vmstudio.visor.api.client.input.HapticFeedback;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.math.Axis;
-import net.minecraft.Util;
+import net.minecraft.util.Util;
 import net.minecraft.client.player.AbstractClientPlayer;
 import net.minecraft.client.player.LocalPlayer;
-import net.minecraft.client.renderer.entity.ItemRenderer;
-import net.minecraft.client.resources.model.BakedModel;
+//? if >=1.21.4 {
+import net.minecraft.client.renderer.item.ItemModelResolver;
+import net.minecraft.client.renderer.item.ItemStackRenderState;
+//?} else {
+/*import net.minecraft.client.resources.model.BakedModel;
+*///?}
 import net.minecraft.util.Mth;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.item.*;
-import net.minecraft.world.item.enchantment.EnchantmentHelper;
+//? if >=26.3 {
+import net.minecraft.tags.ItemTags;
+//?}
+//? if >=1.21.11 {
+import net.minecraft.core.component.DataComponents;
+import net.minecraft.util.Ease;
+import net.minecraft.world.item.component.KineticWeapon;
+//?}
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.TorchBlock;
 import org.jetbrains.annotations.NotNull;
 import org.joml.Quaternionf;
+import org.joml.Quaternionfc;
+import org.joml.Vector3f;
+import org.joml.Vector3fc;
 import org.vmstudio.visor.api.client.player.VRClientPlayer;
+import org.vmstudio.visor.api.common.player.VRPlayer;
 import org.vmstudio.visor.api.client.render.decoration.annotations.RegisterVRItemPose;
 import org.vmstudio.visor.api.client.render.decoration.hand.VRHandItemPose;
 import org.vmstudio.visor.api.common.HandType;
 import org.vmstudio.visor.api.common.addon.VisorAddon;
 import org.vmstudio.visor.api.common.addon.component.ComponentPriority;
-import org.vmstudio.visor.compatibility.ItemClassifier;
+import org.vmstudio.visor.api.compatibility.ItemClassifier;
 import org.vmstudio.visor.core.client.ClientContext;
 import org.vmstudio.visor.core.client.VisorState;
 import org.vmstudio.visor.core.client.gui.overlays.builtin.VROverlayItemPoseTest;
@@ -35,13 +54,15 @@ import static org.vmstudio.visor.core.client.VisorClientImpl.MC;
  * Default items positioning in VR.
  * <p>
  *     Made with {@link VROverlayItemPoseTest} tool,
- *     and based on Meta Quest 3s controllers
- *     (should be compatible with others, because gunAngle is used)
+ *     and based on Meta Quest 3s controllers. The values are authored
+ *     in the aim frame, {@link VRHandItemPose#getAimToGripRotation}
+ *     re-anchors them onto the grip frame so other controllers match.
  * </p>
  */
 @RegisterVRItemPose
 public class VRItemPoseDefault extends VRHandItemPose {
     private static final String ID = "default";
+    private static final Vector3fc SPEAR_GRIP = new Vector3f(0.0f, -0.2743f, 0.121f);
 
     public VRItemPoseDefault(@NotNull VisorAddon owner) {
         super(owner);
@@ -62,9 +83,9 @@ public class VRItemPoseDefault extends VRHandItemPose {
 
         PoseParams params = computeParams(item, player,vrPlayer, mcHand, handDir, equipProgress, partialTicks);
 
-        stack.mulPose(params.preRotation);
+        McRenderUtils.rotate(stack, params.preRotation);
         stack.translate(params.offsetX, params.offsetY, params.offsetZ);
-        stack.mulPose(params.rotation);
+        McRenderUtils.rotate(stack, params.rotation);
         stack.scale(params.scale, params.scale, params.scale);
     }
 
@@ -78,8 +99,8 @@ public class VRItemPoseDefault extends VRHandItemPose {
                                      float partialTicks) {
         boolean isSelf = player instanceof LocalPlayer;
 
-        float gunAngle = vrPlayer.getGunAngle();
         HandType handType = HandType.fromMc(mcHand);
+        Quaternionfc aimToGrip = getAimToGripRotation(vrPlayer, handType);
 
         Quaternionf preRotation = new Quaternionf();
 
@@ -100,7 +121,7 @@ public class VRItemPoseDefault extends VRHandItemPose {
         float roll = 0;
 
 
-        var transformType = getTransformType(itemStack, player, MC.getItemRenderer());
+        var transformType = getTransformType(itemStack, player);
         switch (transformType) {
             case BLOCK_ITEM, DEFAULT -> {
                 scale = 1.0f;
@@ -115,7 +136,11 @@ public class VRItemPoseDefault extends VRHandItemPose {
                 scale = 0.7f;
                 translateY = 0.005f-0.05f;
                 translateZ -= 0.13f;
-                if(itemStack.getItem() instanceof BedItem){
+                //? if >=26.3 {
+                if(itemStack.is(ItemTags.BEDS)){
+                //?} else {
+                /*if(itemStack.getItem() instanceof BedItem){
+                *///?}
                     yaw = -50 + 20;
                 }else if(itemStack.getItem() instanceof BannerItem){
                     scale = 1.4f;
@@ -199,28 +224,28 @@ public class VRItemPoseDefault extends VRHandItemPose {
                 translateY = 0.005f-0.04f;
                 yaw = -25;
             }
+            case MACE -> {
+                scale = 1.1f;
+                translateZ -= 0.1F;
+                translateY = 0.005f-0.04f;
+                yaw = -25;
+            }
             case SHIELD -> {
-
+                scale = 1.0f;
                 if (player.isUsingItem() && player.getUsedItemHand() == mcHand) {
-                    translateY = 0.005f-0.04f;;
-                    translateX = handDir * -0.17f;
+                    translateX = handDir == 1 ? -0.25f : 0.17f;
+                    translateY = handDir == 1 ? -0.04f : 0f;
                     yaw = -45;
                     pitch = handDir * 45;
-
-                }else{
-                    translateY = 0.005f-0.04f;
-                    translateZ += 0.1f;
-                    translateX += handDir * 0.015f;
-                    yaw = -50 + (handDir == 1 ? 105 : 115) - gunAngle;
                 }
 
             }
-            case SPEAR -> {
+            case TRIDENT-> {
                 scale = 1.3f;
                 preYaw = 90;
 
                 float progress = 0.0F;
-                int riptideLevel = EnchantmentHelper.getRiptide(itemStack);
+                float riptideLevel = McVersionUtils.riptideStrength(itemStack, player);
 
                 if (player.isUsingItem()
                         && player.getUseItemRemainingTicks() > 0
@@ -228,7 +253,7 @@ public class VRItemPoseDefault extends VRHandItemPose {
 
                     if (riptideLevel <= 0 || player.isInWaterOrRain()) {
                         progress =
-                                itemStack.getUseDuration() - (player.getUseItemRemainingTicks() - partialTicks + 1.0F);
+                                McVersionUtils.useDuration(itemStack, player) - (player.getUseItemRemainingTicks() - partialTicks + 1.0F);
 
                         if (progress > TridentItem.THROW_THRESHOLD_TIME) {
                             float rotationProgress = progress - TridentItem.THROW_THRESHOLD_TIME;
@@ -240,7 +265,7 @@ public class VRItemPoseDefault extends VRHandItemPose {
 
                             if (isSelf && VisorState.TICK_COUNT % 2 == 0) {
                                 ClientContext.inputManager.triggerHapticPulseMicroSec(
-                                        handType, 200
+                                        handType, HapticFeedback.RIPTIDE_SPIN
                                 );
                             }
 
@@ -265,9 +290,29 @@ public class VRItemPoseDefault extends VRHandItemPose {
                     pitch = handDir * 30;
                 }
             }
+            case SPEAR-> {
+                scale = 1.3f;
+                yaw = -90;
+                roll = -90;
+                SpearMotion motion = spearMotion(itemStack, player, mcHand, partialTicks);
+                preYaw = motion.dip();
+                prePitch = motion.sway();
+                Vector3f pivot = new Vector3f(SPEAR_GRIP)
+                        .rotate(new Quaternionf()
+                                .rotationY(prePitch * Mth.DEG_TO_RAD)
+                                .rotateX(preYaw * Mth.DEG_TO_RAD)
+                                .conjugate())
+                        .sub(SPEAR_GRIP);
+                translateX = -0.1625f + pivot.x;
+                translateY = -0.2743f + pivot.y;
+                translateZ = -0.0773f + pivot.z - motion.slide();
+            }
         }
 
-        yaw += gunAngle - 60;
+        boolean aimLocked = transformType == TransformType.SPEAR;
+        if (!aimLocked) {
+            yaw -= VRPlayer.DEFAULT_GUN_ANGLE;
+        }
 
         preRotation.mul(Axis.ZP.rotationDegrees(preRoll));
         preRotation.mul(Axis.YP.rotationDegrees(prePitch));
@@ -275,17 +320,83 @@ public class VRItemPoseDefault extends VRHandItemPose {
         rotation.mul(Axis.ZP.rotationDegrees(roll));
         rotation.mul(Axis.YP.rotationDegrees(pitch));
         rotation.mul(Axis.XP.rotationDegrees(yaw));
+        if (!aimLocked) {
+            rotation.mul(aimToGrip);
+        }
         return new PoseParams(preRotation, rotation, translateX, translateY, translateZ, scale);
     }
+
+    private static SpearMotion spearMotion(ItemStack itemStack,
+                                           AbstractClientPlayer player,
+                                           InteractionHand mcHand,
+                                           float partialTicks) {
+        float slide = 0;
+        float dip = 0;
+        float sway = 0;
+        //? if >=1.21.11 {
+        KineticWeapon weapon = itemStack.get(DataComponents.KINETIC_WEAPON);
+        float reach = weapon != null ? weapon.forwardMovement() : 0.38f;
+
+        if (McVersionUtils.swingingArm(player) == mcHand && McVersionUtils.isStabSwing(player)) {
+            float attack = McVersionUtils.attackAnim(player, partialTicks);
+            float windUp = Ease.inOutSine(progress(attack, 0.0f, 0.05f));
+            float thrust = Ease.outBack(progress(attack, 0.05f, 0.2f));
+            float retract = Ease.inOutExpo(progress(attack, 0.4f, 1.0f));
+            slide += reach * (thrust - retract) - 0.08f * (windUp - thrust);
+        }
+
+        if (weapon != null && player.isUsingItem() && player.getUsedItemHand() == mcHand) {
+            float time = player.getTicksUsingItem() + partialTicks;
+            int delay = weapon.delayTicks();
+            int dismountEnd = delay + weapon.dismountConditions().map(KineticWeapon.Condition::maxDurationTicks).orElse(0);
+            int knockbackEnd = delay + weapon.knockbackConditions().map(KineticWeapon.Condition::maxDurationTicks).orElse(0);
+            int damageEnd = delay + weapon.damageConditions().map(KineticWeapon.Condition::maxDurationTicks).orElse(0);
+
+            float spent = progress(time, damageEnd - 5, damageEnd);
+            float swayAmount = Ease.outCirc(progress(time, dismountEnd - 20, dismountEnd)) * (1.0f - Ease.inCirc(spent));
+            float hit = player.getTicksSinceLastKineticHitFeedback(partialTicks);
+            float recoil = Ease.outQuart(progress(hit, 1, 3)) - Ease.inOutSine(progress(hit, 3, 10));
+
+            slide += reach * Ease.inOutBack(progress(time, 0, delay)) * (1.0f - spent) - 0.25f * recoil;
+            dip = -15.0f * Ease.inOutSine(progress(time, knockbackEnd - 20, knockbackEnd + 20)) * (1.0f - spent)
+                    + swayAmount * Mth.sin(time * 30.0f * Mth.DEG_TO_RAD);
+            sway = 2.5f * swayAmount * Mth.sin(time * 19.0f * Mth.DEG_TO_RAD);
+        }
+        //?}
+        return new SpearMotion(slide, dip, sway);
+    }
+
+    private static float progress(float time, float start, float end) {
+        if (end <= start) {
+            return time >= end ? 1.0f : 0.0f;
+        }
+        return Mth.clamp((time - start) / (end - start), 0.0f, 1.0f);
+    }
+
+    public static boolean isSpearStab(AbstractClientPlayer player, InteractionHand hand) {
+        return McVersionUtils.isStabSwing(player) && ItemClassifier.SPEAR.is(player.getItemInHand(hand));
+    }
+    //? if >=1.21.4 {
+    private static final ItemStackRenderState ITEM_RENDER_STATE = new ItemStackRenderState();
+    //?}
+
     public static TransformType getTransformType(ItemStack itemStack,
-                                                 AbstractClientPlayer player,
-                                                 ItemRenderer itemRenderer) {
+                                                 AbstractClientPlayer player) {
         TransformType transformType = TransformType.DEFAULT;
         Item item = itemStack.getItem();
 
-        if (itemStack.getUseAnimation() == UseAnim.EAT
-                || itemStack.getUseAnimation() == UseAnim.DRINK) {
+        if (McVersionUtils.useAnimation(itemStack) == McUseAnim.EAT
+                || McVersionUtils.useAnimation(itemStack) == McUseAnim.DRINK) {
             return TransformType.CONSUMABLE;
+        }
+
+        //tagged modded shields may also be tools or block items
+        if (ItemClassifier.SHIELD.is(itemStack)) {
+            return TransformType.SHIELD;
+        }
+
+        if (ItemClassifier.SPEAR.is(itemStack)) {
+            return TransformType.SPEAR;
         }
 
         if (isTool(item)) {
@@ -307,11 +418,25 @@ public class VRItemPoseDefault extends VRHandItemPose {
             if (block instanceof TorchBlock) {
                 transformType = TransformType.BLOCK_STICK;
             } else {
-                BakedModel model = itemRenderer.getModel(
+                //? if >=1.21.5 {
+                // updateForTopItem clears the reused state before filling it
+                ItemModelResolver resolver = MC.getItemModelResolver();
+                resolver.updateForTopItem(ITEM_RENDER_STATE, itemStack, ItemDisplayContext.GROUND,
+                        MC.level, MC.player, 0);
+                boolean gui3d = ITEM_RENDER_STATE.usesBlockLight();
+                //?} elif >=1.21.4 {
+                /*ItemModelResolver resolver = MC.getItemModelResolver();
+                resolver.updateForTopItem(ITEM_RENDER_STATE, itemStack, ItemDisplayContext.GROUND,
+                        false, MC.level, MC.player, 0);
+                boolean gui3d = ITEM_RENDER_STATE.isGui3d();
+                *///?} else {
+                /*BakedModel model = MC.getItemRenderer().getModel(
                         itemStack, MC.level, MC.player, 0
                 );
+                boolean gui3d = model.isGui3d();
+                *///?}
 
-                if (model.isGui3d()) {
+                if (gui3d) {
                     transformType = TransformType.BLOCK_3D;
                 } else {
                     transformType = TransformType.BLOCK_ITEM;
@@ -322,14 +447,16 @@ public class VRItemPoseDefault extends VRHandItemPose {
         } else if (item instanceof BowItem) {
             transformType = TransformType.BOW;
 
-        } else if (itemStack.getUseAnimation() == UseAnim.TOOT_HORN) {
+        } else if (McVersionUtils.useAnimation(itemStack) == McUseAnim.TOOT_HORN) {
             transformType = TransformType.HORN;
+        } else if (ItemClassifier.MACE.is(item)) {
+            transformType = TransformType.MACE;
         } else if (ItemClassifier.SWORD.is(item)) {
             transformType = TransformType.SWORD;
         } else if (ItemClassifier.SHIELD.is(item)) {
             transformType = TransformType.SHIELD;
-        } else if (ItemClassifier.SPEAR.is(item)) {
-            transformType = TransformType.SPEAR;
+        } else if (ItemClassifier.TRIDENT.is(item)) {
+            transformType = TransformType.TRIDENT;
         } else if (item instanceof CrossbowItem) {
             transformType = TransformType.CROSSBOW;
         } else if (item instanceof CompassItem || item == Items.CLOCK) {
@@ -339,15 +466,23 @@ public class VRItemPoseDefault extends VRHandItemPose {
     }
 
     public static boolean isTool(final Item item) {
-        return item instanceof DiggerItem
+        //? if >=26.3 {
+        return ItemClassifier.isDiggerTool(item)
+                || item instanceof FishingRodItem
+                || item instanceof FoodOnAStickItem
+                || item instanceof FlintAndSteelItem
+                || item instanceof BrushItem;
+        //?} else {
+        /*return ItemClassifier.isDiggerTool(item)
                 || item instanceof FishingRodItem
                 || item instanceof FoodOnAStickItem
                 || item instanceof FlintAndSteelItem
                 || item instanceof BrushItem
                 || item instanceof HoeItem
                 || item instanceof AxeItem
-                || item instanceof PickaxeItem
+                || ItemClassifier.isPickaxe(item)
                 || item instanceof ShovelItem;
+        *///?}
     }
     public static boolean isStick(final Item item){
         return item instanceof DebugStickItem
@@ -385,6 +520,7 @@ public class VRItemPoseDefault extends VRHandItemPose {
                               float offsetY,
                               float offsetZ,
                               float scale) {}
+    private record SpearMotion(float slide, float dip, float sway) {}
     public enum TransformType {
         DEFAULT,
         BLOCK_3D,
@@ -392,9 +528,11 @@ public class VRItemPoseDefault extends VRHandItemPose {
         BLOCK_ITEM,
         SHIELD,
         SWORD,
+        MACE,
         TOOL,
         FISHING_ROD,
         BOW,
+        TRIDENT,
         SPEAR,
         MAP,
         CONSUMABLE,

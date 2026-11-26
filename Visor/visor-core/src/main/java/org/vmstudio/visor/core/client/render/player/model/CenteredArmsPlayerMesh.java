@@ -1,6 +1,6 @@
 package org.vmstudio.visor.core.client.render.player.model;
 
-import net.minecraft.client.model.PlayerModel;
+import net.minecraft.client.model.player.PlayerModel;
 import net.minecraft.client.model.geom.PartPose;
 import net.minecraft.client.model.geom.builders.CubeDeformation;
 import net.minecraft.client.model.geom.builders.CubeListBuilder;
@@ -23,29 +23,46 @@ public final class CenteredArmsPlayerMesh {
         float addBoxZ = -2.0F;
         float pivotY = slim ? 2.5F : 2.0F;
         float pivotX = 5.0F + (halfWidth - 1.0F);
-        float sleeveExtend = 0.25F;
+        float sleeveExtend = slim ? 0.12F : 0.25F;
 
         // ---- Left arm ----
-        root.addOrReplaceChild("left_arm", CubeListBuilder.create()
+        PartDefinition leftArm = root.addOrReplaceChild("left_arm", CubeListBuilder.create()
                         .texOffs(32, 48)
                         .addBox(-halfWidth, addBoxY, addBoxZ, boxXSize, boxYSize, boxZSize, cubeDeformation),
                 PartPose.offset(pivotX, pivotY, 0.0F));
-        root.addOrReplaceChild("left_sleeve", CubeListBuilder.create()
+        //? if >=1.21.2 {
+        // 1.21.2 nests the sleeves inside the arms
+        leftArm.addOrReplaceChild("left_sleeve", CubeListBuilder.create()
+                        .texOffs(48, 48)
+                        .addBox(-halfWidth, addBoxY, addBoxZ, boxXSize, boxYSize, boxZSize,
+                                cubeDeformation.extend(sleeveExtend)),
+                PartPose.ZERO);
+        //?} else {
+        /*root.addOrReplaceChild("left_sleeve", CubeListBuilder.create()
                         .texOffs(48, 48)
                         .addBox(-halfWidth, addBoxY, addBoxZ, boxXSize, boxYSize, boxZSize,
                                 cubeDeformation.extend(sleeveExtend)),
                 PartPose.offset(pivotX, pivotY, 0.0F));
+        *///?}
 
         // ---- Right arm ----
-        root.addOrReplaceChild("right_arm", CubeListBuilder.create()
+        PartDefinition rightArm = root.addOrReplaceChild("right_arm", CubeListBuilder.create()
                         .texOffs(40, 16)
                         .addBox(-halfWidth, addBoxY, addBoxZ, boxXSize, boxYSize, boxZSize, cubeDeformation),
                 PartPose.offset(-pivotX, pivotY, 0.0F));
-        root.addOrReplaceChild("right_sleeve", CubeListBuilder.create()
+        //? if >=1.21.2 {
+        rightArm.addOrReplaceChild("right_sleeve", CubeListBuilder.create()
+                        .texOffs(40, 32)
+                        .addBox(-halfWidth, addBoxY, addBoxZ, boxXSize, boxYSize, boxZSize,
+                                cubeDeformation.extend(sleeveExtend)),
+                PartPose.ZERO);
+        //?} else {
+        /*root.addOrReplaceChild("right_sleeve", CubeListBuilder.create()
                         .texOffs(40, 32)
                         .addBox(-halfWidth, addBoxY, addBoxZ, boxXSize, boxYSize, boxZSize,
                                 cubeDeformation.extend(sleeveExtend)),
                 PartPose.offset(-pivotX, pivotY, 0.0F));
+        *///?}
 
         return mesh;
     }

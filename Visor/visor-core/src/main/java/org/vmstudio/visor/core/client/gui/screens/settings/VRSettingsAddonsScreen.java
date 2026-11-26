@@ -1,13 +1,20 @@
 package org.vmstudio.visor.core.client.gui.screens.settings;
 
+import org.vmstudio.visor.api.compatibility.mcversion.gui.McGuiUtils;
 import com.mojang.blaze3d.platform.InputConstants;
 import me.phoenixra.atumvr.api.misc.color.AtumColor;
 import org.vmstudio.visor.api.common.addon.VisorAddon;
 import org.vmstudio.visor.core.client.ClientContext;
-import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
+//? if >=1.21.9 {
+import net.minecraft.client.input.MouseButtonEvent;
+//?}
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.ObjectSelectionList;
+import org.vmstudio.visor.api.compatibility.mcversion.gui.McObjectSelectionList;
 import net.minecraft.client.gui.screens.Screen;
+import org.vmstudio.visor.api.compatibility.mcversion.gui.McScreen;
+import org.vmstudio.visor.api.compatibility.mcversion.McVersionClientUtils;
 import net.minecraft.network.chat.Component;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -16,7 +23,7 @@ import java.util.List;
 
 import static org.vmstudio.visor.core.client.VisorClientImpl.MC;
 
-public class VRSettingsAddonsScreen extends Screen {
+public class VRSettingsAddonsScreen extends McScreen {
 
     private final Screen previousScreen;
 
@@ -34,8 +41,8 @@ public class VRSettingsAddonsScreen extends Screen {
         List<VisorAddon> addons = ClientContext.addonManager.getAddons().stream().toList();
 
         this.list = new AddonList(
-                this.width, this.height,
-                32, this.height - 32, 24
+                this.width, this.height - 64,
+                32, 24
         );
 
         int rowWidth = this.list.getRowWidth();
@@ -67,7 +74,7 @@ public class VRSettingsAddonsScreen extends Screen {
             } else if (rightScreen == null) {
                 continue;
             }
-            this.list.children().add(
+            this.list.addRow(
                     new AddonEntry(
                             leftAddon, leftScreen,
                             rightAddon, rightScreen,
@@ -78,7 +85,7 @@ public class VRSettingsAddonsScreen extends Screen {
             leftScreen = null;
         }
         if(leftAddon != null && leftScreen != null){
-            this.list.children().add(
+            this.list.addRow(
                     new AddonEntry(
                             leftAddon, leftScreen,
                             null, null,
@@ -87,13 +94,13 @@ public class VRSettingsAddonsScreen extends Screen {
             );
         }
         list.setRenderBackground(false);
-        list.setRenderTopAndBottom(false);
+        McGuiUtils.setRenderTopAndBottom(list, false);
         this.addWidget(this.list);
 
         //Back button
         this.addRenderableWidget(
                 Button.builder(Component.translatable("gui.back"), btn -> {
-                            MC.setScreen(this.previousScreen);
+                            McVersionClientUtils.setScreen(this.previousScreen);
                         })
                         .bounds(this.width / 2 - 100, this.height - 27, 200, 20)
                         .build()
@@ -101,35 +108,36 @@ public class VRSettingsAddonsScreen extends Screen {
     }
 
     @Override
-    public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+    protected boolean onKeyPressed(int keyCode, int scanCode, int modifiers) {
         if (keyCode == InputConstants.KEY_ESCAPE) {
             ClientContext.settingsManager.saveOptions();
-            MC.setScreen(this.previousScreen);
+            McVersionClientUtils.setScreen(this.previousScreen);
             return true;
         }
-        return super.keyPressed(keyCode, scanCode, modifiers);
+        return super.onKeyPressed(keyCode, scanCode, modifiers);
     }
 
     @Override
-    public void render(GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTicks) {
-        this.renderBackground(guiGraphics);
+    protected void renderContents(GuiGraphicsExtractor guiGraphics, int mouseX, int mouseY, float partialTicks) {
+        McGuiUtils.render(this.list, guiGraphics, mouseX, mouseY, partialTicks);
 
-        this.list.renderBackground(guiGraphics);
-        this.list.render(guiGraphics, mouseX, mouseY, partialTicks);
+        McGuiUtils.drawCenteredString(guiGraphics, this.font, this.title, this.width / 2, 15, 0xFFFFFF);
 
-        guiGraphics.drawCenteredString(this.font, this.title, this.width / 2, 15, 0xFFFFFF);
-
-        super.render(guiGraphics, mouseX, mouseY, partialTicks);
+        super.renderContents(guiGraphics, mouseX, mouseY, partialTicks);
     }
 
 
-    private static class AddonList extends ObjectSelectionList<AddonEntry> {
-        public AddonList(int width, int height, int top, int bottom, int itemHeight) {
-            super(MC, width, height, top, bottom, itemHeight);
+    private static class AddonList extends McObjectSelectionList<AddonEntry> {
+        public AddonList(int width, int height, int top, int itemHeight) {
+            super(MC, width, height, 0, top, itemHeight);
+        }
+
+        private void addRow(AddonEntry entry) {
+            addEntry(entry);
         }
 
         @Override
-        protected int getScrollbarPosition() {
+        protected int scrollbarX() {
             return this.width - 6;
         }
 
@@ -139,12 +147,13 @@ public class VRSettingsAddonsScreen extends Screen {
         }
 
         @Override
-        protected void renderBackground(GuiGraphics guiGraphics) {
+        protected void renderContents(GuiGraphicsExtractor guiGraphics, int mouseX, int mouseY, float partialTick) {
             guiGraphics.fill(
-                    this.x0, this.y0,
-                    this.x1, this.y1,
+                    listLeft(), listTop(),
+                    listRight(), listBottom(),
                     AtumColor.BLACK.withAlpha(0.5f).asInt()
             );
+            renderDefault(guiGraphics, mouseX, mouseY, partialTick);
         }
     }
 
@@ -165,7 +174,7 @@ public class VRSettingsAddonsScreen extends Screen {
 
             this.leftButton = Button.builder(
                             left.getAddonName().copy().append("..."),
-                            b -> MC.setScreen(leftScreen)
+                            b -> McVersionClientUtils.setScreen(leftScreen)
                     )
                     .bounds(0, 0, buttonWidth, buttonH)
                     .build();
@@ -173,7 +182,7 @@ public class VRSettingsAddonsScreen extends Screen {
             if (right != null) {
                 this.rightButton = Button.builder(
                                 right.getAddonName().copy().append("..."),
-                                b -> MC.setScreen(rightScreen)
+                                b -> McVersionClientUtils.setScreen(rightScreen)
                         )
                         .bounds(0, 0, buttonWidth, buttonH)
                         .build();
@@ -182,9 +191,27 @@ public class VRSettingsAddonsScreen extends Screen {
             }
         }
 
+        //? if >=26.1 {
         @Override
+        public void extractContent(GuiGraphicsExtractor gui, int mouseX, int mouseY, boolean hovered, float partialTicks) {
+            visor$renderRow(gui, getY(), getX(), getWidth(), mouseX, mouseY, partialTicks);
+        }
+
+        private void visor$renderRow(GuiGraphicsExtractor gui, int top, int left, int listWidth,
+                                     int mouseX, int mouseY, float partialTicks) {
+        //?} elif >=1.21.9 {
+        /*@Override
+        public void renderContent(GuiGraphics gui, int mouseX, int mouseY, boolean hovered, float partialTicks) {
+            visor$renderRow(gui, getY(), getX(), getWidth(), mouseX, mouseY, partialTicks);
+        }
+
+        private void visor$renderRow(GuiGraphics gui, int top, int left, int listWidth,
+                                     int mouseX, int mouseY, float partialTicks) {
+        *///?} else {
+        /*@Override
         public void render(GuiGraphics gui, int index, int top, int left, int listWidth, int slotHeight,
                            int mouseX, int mouseY, boolean hovered, float partialTicks) {
+        *///?}
             int spacing = 5;
             int btnW = leftButton.getWidth();
             int totalW = btnW + (rightButton != null ? btnW + spacing : 0);
@@ -192,21 +219,30 @@ public class VRSettingsAddonsScreen extends Screen {
 
             leftButton.setX(startX);
             leftButton.setY(top);
-            leftButton.render(gui, mouseX, mouseY, partialTicks);
+            McGuiUtils.render(leftButton, gui, mouseX, mouseY, partialTicks);
 
             if (rightButton != null) {
                 rightButton.setX(startX + btnW + spacing);
                 rightButton.setY(top);
-                rightButton.render(gui, mouseX, mouseY, partialTicks);
+                McGuiUtils.render(rightButton, gui, mouseX, mouseY, partialTicks);
             }
         }
 
+        //? if >=1.21.9 {
         @Override
+        public boolean mouseClicked(MouseButtonEvent event, boolean doubleClick) {
+            if (leftButton.mouseClicked(event, doubleClick)) return true;
+            return rightButton != null
+                    && rightButton.mouseClicked(event, doubleClick);
+        }
+        //?} else {
+        /*@Override
         public boolean mouseClicked(double x, double y, int btn) {
             if (leftButton.mouseClicked(x, y, btn))  return true;
             return rightButton != null
                     && rightButton.mouseClicked(x, y, btn);
         }
+        *///?}
 
         @Override
         public @NotNull Component getNarration() {

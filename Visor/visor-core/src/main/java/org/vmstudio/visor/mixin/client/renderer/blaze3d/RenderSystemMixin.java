@@ -1,31 +1,33 @@
+// #!MC-VERSION:: 1.21.5+
 package org.vmstudio.visor.mixin.client.renderer.blaze3d;
 
-import com.mojang.blaze3d.platform.GlStateManager;
 import com.mojang.blaze3d.systems.RenderSystem;
+//? if >=26.1 {
+import net.minecraft.client.FramerateLimiter;
+//?}
+import org.vmstudio.visor.core.client.ClientContext;
 import org.vmstudio.visor.core.client.VisorState;
+import org.vmstudio.visor.core.client.render.helpers.ShaderTextureHelper;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.ModifyArg;
+import org.spongepowered.asm.mixin.injection.ModifyVariable;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
-import static com.mojang.blaze3d.systems.RenderSystem.blendFuncSeparate;
-
-@Mixin(RenderSystem.class)
+//? if >=26.1 {
+@Mixin(FramerateLimiter.class)
+//?} else {
+/*@Mixin(RenderSystem.class)
+*///?}
 public class RenderSystemMixin {
 
     @Inject(at = @At("HEAD"), method = "limitDisplayFPS",
             cancellable = true, remap = false)
-    private static void visor$noFPSlimit(CallbackInfo ci) {
-        if (VisorState.get().isActive()) {
+    private static void visor$cancelFPSLimit(CallbackInfo ci) {
+        if (VisorState.get().isActive() && ClientContext.visor.isSessionRunning()) {
             ci.cancel();
         }
-    }
-
-    @ModifyArg(method = "defaultBlendFunc", at = @At(value = "INVOKE", target = "Lcom/mojang/blaze3d/systems/RenderSystem;blendFuncSeparate(Lcom/mojang/blaze3d/platform/GlStateManager$SourceFactor;Lcom/mojang/blaze3d/platform/GlStateManager$DestFactor;Lcom/mojang/blaze3d/platform/GlStateManager$SourceFactor;Lcom/mojang/blaze3d/platform/GlStateManager$DestFactor;)V", remap = true), remap = false, index = 3)
-    private static GlStateManager.DestFactor visor$defaultBlendFuncAlphaBlending(
-            GlStateManager.DestFactor destFactor) {
-        return GlStateManager.DestFactor.ONE_MINUS_SRC_ALPHA;
     }
 
 }

@@ -1,12 +1,13 @@
 package org.vmstudio.visor.api.client.gui.overlays.framework.screen;
 
+import com.mojang.blaze3d.platform.InputConstants;
 import lombok.Getter;
 import org.vmstudio.visor.api.client.gui.overlays.framework.VROverlayScreen;
 
 import org.vmstudio.visor.api.common.addon.component.ComponentPriority;
 import org.vmstudio.visor.api.common.addon.VisorAddon;
-import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.GuiGraphics;
+import org.vmstudio.visor.api.compatibility.mcversion.gui.McGuiUtils;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.screens.Screen;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -39,52 +40,48 @@ public abstract class VROverlayScreenInScreen<T extends Screen> extends VROverla
     @Override
     protected void init() {
         if(screen!=null){
-            screen.init(
-                    Minecraft.getInstance(),
-                    width,
-                    height
-            );
+            McGuiUtils.initScreen(screen, width, height);
         }
     }
 
     @Override
-    protected void onRender(GuiGraphics guiGraphics,
+    protected void onRender(GuiGraphicsExtractor guiGraphics,
                             int mouseX, int mouseY,
                             float partialTicks) {
 
         if(screen!=null) {
-            screen.renderWithTooltip(guiGraphics, mouseX, mouseY, partialTicks);
+            McGuiUtils.renderWithTooltip(screen, guiGraphics, mouseX, mouseY, partialTicks);
         }
 
     }
 
 
     @Override
-    public boolean mouseClicked(double mouseX, double mouseY, int buttonType) {
-        if (buttonType == 0 && isCursorOnResizeHandle(getRawMouseX(), getRawMouseY())) {
+    protected boolean onMouseClicked(double mouseX, double mouseY, int buttonType) {
+        if (buttonType == InputConstants.MOUSE_BUTTON_LEFT && isCursorOnResizeHandle(getRawMouseX(), getRawMouseY())) {
             startResizing();
             return true;
         }
-        if (buttonType == 0 && isCursorOnDragHandle(getRawMouseX(), getRawMouseY())) {
+        if (buttonType == InputConstants.MOUSE_BUTTON_LEFT && isCursorOnDragHandle(getRawMouseX(), getRawMouseY())) {
             startDragging();
             return true;
         }
         if(screen==null) return true;
-        return screen.mouseClicked(mouseX, mouseY, buttonType);
+        return McGuiUtils.mouseClicked(screen, mouseX, mouseY, buttonType);
     }
 
     @Override
-    public boolean mouseReleased(double mouseX, double mouseY, int buttonType) {
-        if (buttonType == 0 && isBeingResized()) {
+    protected boolean onMouseReleased(double mouseX, double mouseY, int buttonType) {
+        if (buttonType == InputConstants.MOUSE_BUTTON_LEFT && isBeingResized()) {
             stopResizing();
             return true;
         }
-        if (buttonType == 0 && isBeingDragged()) {
+        if (buttonType == InputConstants.MOUSE_BUTTON_LEFT && isBeingDragged()) {
             stopDragging();
             return true;
         }
         if(screen==null) return true;
-        return screen.mouseReleased(mouseX, mouseY, buttonType);
+        return McGuiUtils.mouseReleased(screen, mouseX, mouseY, buttonType);
     }
 
     @Override
@@ -94,37 +91,37 @@ public abstract class VROverlayScreenInScreen<T extends Screen> extends VROverla
     }
 
     @Override
-    public boolean mouseDragged(double mouseX, double mouseY,
-                                int buttonType,
-                                double dragX, double dragY
+    protected boolean onMouseDragged(double mouseX, double mouseY,
+                                     int buttonType,
+                                     double dragX, double dragY
     ) {
         if(screen==null) return true;
-        return screen.mouseDragged(mouseX, mouseY, buttonType, dragX, dragY);
+        return McGuiUtils.mouseDragged(screen, mouseX, mouseY, buttonType, dragX, dragY);
     }
 
 
     @Override
-    public boolean mouseScrolled(double mouseX, double mouseY, double scrollDelta) {
+    protected boolean onMouseScrolled(double mouseX, double mouseY, double scrollDelta) {
         if(screen==null) return true;
-        return screen.mouseScrolled(mouseX, mouseY, scrollDelta);
+        return McGuiUtils.mouseScrolled(screen, mouseX, mouseY, scrollDelta);
     }
 
     @Override
-    public boolean keyPressed(int keyCode, int keyScan, int modifiers) {
+    protected boolean onKeyPressed(int keyCode, int keyScan, int modifiers) {
         if(screen==null) return true;
-        return screen.keyPressed(keyCode, keyScan, modifiers);
+        return McGuiUtils.keyPressed(screen, keyCode, keyScan, modifiers);
     }
 
     @Override
-    public boolean keyReleased(int keyCode, int keyScan, int modifiers) {
+    protected boolean onKeyReleased(int keyCode, int keyScan, int modifiers) {
         if(screen==null) return true;
-        return screen.keyReleased(keyCode, keyScan, modifiers);
+        return McGuiUtils.keyReleased(screen, keyCode, keyScan, modifiers);
     }
 
     @Override
-    public boolean charTyped(char chr, int modifiers) {
+    protected boolean onCharTyped(char chr, int modifiers) {
         if(screen==null) return true;
-        return screen.charTyped(chr, modifiers);
+        return McGuiUtils.charTyped(screen, chr, modifiers);
     }
 
     @Override

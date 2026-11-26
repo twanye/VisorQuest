@@ -1,21 +1,26 @@
 package org.vmstudio.visor.core.client.render.decoration.decorators.mainmenu;
 
-import com.mojang.blaze3d.platform.GlStateManager;
+import org.vmstudio.visor.api.compatibility.mcversion.render.McGlState;
+import org.vmstudio.visor.api.compatibility.mcversion.render.McShaders;
+import org.vmstudio.visor.api.compatibility.mcversion.render.McRenderUtils;
+import org.vmstudio.visor.api.compatibility.mcversion.render.McVertexBuilder;
 import com.mojang.blaze3d.platform.NativeImage;
-import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.*;
+import com.mojang.renderpearl.api.pipeline.PrimitiveTopology;
 import me.phoenixra.atumvr.api.misc.color.AtumColor;
 import me.phoenixra.atumvr.api.misc.color.AtumColorImmutable;
 import me.phoenixra.atumvr.api.misc.color.AtumColorMutable;
-import net.minecraft.Util;
+import net.minecraft.util.Util;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.renderer.GameRenderer;
 import net.minecraft.client.renderer.texture.DynamicTexture;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
 import org.lwjgl.opengl.GL11C;
+import org.vmstudio.visor.api.compatibility.mcversion.McVersionUtils;
+import org.vmstudio.visor.core.client.VisorClientImpl;
 
+import java.io.InputStream;
 import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -24,7 +29,7 @@ import java.util.List;
 /**
  * Procedural sky for the VR main menu
  */
-//@TODO IT IS PROTOTYPE! REWORK FROM SCRATCH
+//@TODO IT IS PROTOTYPE! REWORK FROM SCRATCH AFTER 0.7.0
 public final class VRMenuSky {
     // ---- DEBUG ----
     private static final boolean DEBUG_FAST_CYCLE = false;
@@ -64,11 +69,11 @@ public final class VRMenuSky {
     private static final long SKY_UPDATE_FREQUENCY = 200L;
 
     // ---- CELESTIAL BODIES ----
-    private static final ResourceLocation SUN_TEXTURE = new ResourceLocation("textures/environment/sun.png");
+    private static final Identifier SUN_TEXTURE = McVersionUtils.newResourceLoc("textures/environment/sun.png");
     private static final float SUN_DISTANCE = 92.0f;
     private static final float SUN_SIZE = 13.0f;
 
-    private static final ResourceLocation MOON_TEXTURE = new ResourceLocation("textures/environment/moon_phases.png");
+    private static final Identifier MOON_TEXTURE = McVersionUtils.newResourceLoc("textures/environment/moon_phases.png");
     private static final float MOON_DISTANCE = 90.0f;
     private static final float MOON_SIZE = 10.0f;
 
@@ -152,13 +157,21 @@ public final class VRMenuSky {
     private static final int VISOR_TOTAL_COLS =
             VISOR_GLYPHS.length * GLYPH_W + (VISOR_GLYPHS.length - 1) * GLYPH_GAP;
 
+    private static final Identifier VISOR_ICON_TEXTURE = McVersionUtils.newResourceLoc("visor:icon_headset.png");
+
+    private static final int VISOR_ICON_COLS = 21;
+    private static final int VISOR_ICON_ROWS = 10;
+    private static final int VISOR_ICON_GAP = 2; // empty rows between the icon and the glyphs
+    private static final int VISOR_ICON_MIN_ALPHA = 128;
+
     // shared billboard basis of the sign plane
     private static final Vector3f VISOR_RIGHT;
     private static final Vector3f VISOR_UP;
 
     private static final DotsSign VISOR_SIGN;
+    private static DotsSign VISOR_ICON = null;
 
-    private static ResourceLocation GLOW_SPRITE = null;
+    private static Identifier GLOW_SPRITE = null;
 
     // ---- CLOUDS ----
     private static final float CLOUD_Y = -14.0f;
@@ -401,7 +414,7 @@ public final class VRMenuSky {
     public static void renderFirst(PoseStack poseStack) {
 
         // --- Prepare variables ---
-        BufferBuilder builder = Tesselator.getInstance().getBuilder();
+        McVertexBuilder builder = McVertexBuilder.get();
         Matrix4f pose = poseStack.last().pose();
         prepareSkyBox();
         currentTime = Util.getMillis();
@@ -410,14 +423,14 @@ public final class VRMenuSky {
         currentScenePhase = sceneTimeToPhase(currentSceneTime);
 
         // --- Setup ---
-        RenderSystem.clear(GL11C.GL_COLOR_BUFFER_BIT | GL11C.GL_DEPTH_BUFFER_BIT, Minecraft.ON_OSX);
-        RenderSystem.setShader(GameRenderer::getPositionColorShader);
-        RenderSystem.setShaderColor(1, 1, 1, 1);
-        RenderSystem.depthMask(false);
-        RenderSystem.disableDepthTest();
-        RenderSystem.disableCull();
-        RenderSystem.enableBlend();
-        RenderSystem.defaultBlendFunc();
+        McGlState.clear(GL11C.GL_COLOR_BUFFER_BIT | GL11C.GL_DEPTH_BUFFER_BIT);
+        McShaders.use(McShaders.Core.POSITION_COLOR);
+        McGlState.setShaderColor(1, 1, 1, 1);
+        McGlState.depthMask(false);
+        McGlState.disableDepthTest();
+        McGlState.disableCull();
+        McGlState.enableBlend();
+        McGlState.defaultBlendFunc();
 
         // --- Render ---
         renderSkyBox(builder, pose);
@@ -433,24 +446,24 @@ public final class VRMenuSky {
         renderUserDots(builder, pose);
 
         // --- Restore ---
-        RenderSystem.enableCull();
-        RenderSystem.enableDepthTest();
-        RenderSystem.depthMask(true);
+        McGlState.enableCull();
+        McGlState.enableDepthTest();
+        McGlState.depthMask(true);
     }
 
     public static void renderLast(PoseStack poseStack) {
         // --- Prepare variables ---
-        BufferBuilder builder = Tesselator.getInstance().getBuilder();
+        McVertexBuilder builder = McVertexBuilder.get();
         Matrix4f pose = poseStack.last().pose();
 
         // --- Setup ---
-        RenderSystem.setShader(GameRenderer::getPositionColorShader);
-        RenderSystem.setShaderColor(1, 1, 1, 1);
-        RenderSystem.enableBlend();
-        RenderSystem.defaultBlendFunc();
-        RenderSystem.enableDepthTest();
-        RenderSystem.depthMask(true);
-        RenderSystem.enableCull();
+        McShaders.use(McShaders.Core.POSITION_COLOR);
+        McGlState.setShaderColor(1, 1, 1, 1);
+        McGlState.enableBlend();
+        McGlState.defaultBlendFunc();
+        McGlState.enableDepthTest();
+        McGlState.depthMask(true);
+        McGlState.enableCull();
 
         // --- Render ---
         renderClouds(builder, pose);
@@ -569,9 +582,9 @@ public final class VRMenuSky {
         face[2] = (int) (rgb[2] * shade);
     }
 
-    private static void renderSkyBox(BufferBuilder builder,
+    private static void renderSkyBox(McVertexBuilder builder,
                                      Matrix4f pose){
-        builder.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_COLOR);
+        builder.begin(PrimitiveTopology.QUADS, DefaultVertexFormat.POSITION_COLOR);
 
         // -Z wall
         horizon(builder, pose, -SKY_BOX, -SKY_BOX, -SKY_BOX);
@@ -604,12 +617,12 @@ public final class VRMenuSky {
         horizon(builder, pose, SKY_BOX, -SKY_BOX, -SKY_BOX);
         horizon(builder, pose, -SKY_BOX, -SKY_BOX, -SKY_BOX);
 
-        BufferUploader.drawWithShader(builder.end());
+        builder.draw();
     }
 
     // ====== CELESTIAL BODIES ======
 
-    private static void renderSun(BufferBuilder builder,
+    private static void renderSun(McVertexBuilder builder,
                                   Matrix4f pose) {
         float elevation = currentSunDir.y;
         float visible = smoothstep(-0.06f, 0.04f, elevation);
@@ -624,70 +637,76 @@ public final class VRMenuSky {
                 )
         );
         float size = SUN_SIZE * (1f + 0.45f * currentTwilight);
+        McRenderUtils.CelestialSprite sun = McRenderUtils.sunSprite();
+        if (sun == null) {
+            return;
+        }
         renderCelestial(
                 builder, pose,
                 currentSunDir, visible,
-                SUN_TEXTURE, SUN_DISTANCE, size,
-                sunTint,
-                0f, 0f, 1f, 1f
+                sun, SUN_DISTANCE, size,
+                sunTint
         );
     }
 
-    private static void renderMoon(BufferBuilder builder,
+    private static void renderMoon(McVertexBuilder builder,
                                    Matrix4f pose) {
         float visible = smoothstep(-0.06f, 0.06f, currentMoonDir.y);
         if (visible <= 0f) {
             return;
         }
-        int phase = currentMoonPhase();
-        float u0 = (phase % 4) / 4f;
-        float v0 = ((int)(phase / 4f)) / 2f;
+        McRenderUtils.CelestialSprite moon = McRenderUtils.moonSprite(currentMoonPhase());
+        if (moon == null) {
+            return;
+        }
         renderCelestial(
                 builder, pose,
                 currentMoonDir, visible,
-                MOON_TEXTURE, MOON_DISTANCE, MOON_SIZE,
-                moonTint,
-                u0, v0, u0 + 0.25f, v0 + 0.5f
+                moon, MOON_DISTANCE, MOON_SIZE,
+                moonTint
         );
     }
 
-    private static void renderCelestial(BufferBuilder builder, Matrix4f pose,
+    private static void renderCelestial(McVertexBuilder builder, Matrix4f pose,
                                         Vector3f dir, float visible,
-                                        ResourceLocation texture, float distance, float size,
-                                        AtumColor color,
-                                        float u0, float v0, float u1, float v1) {
+                                        McRenderUtils.CelestialSprite sprite, float distance, float size,
+                                        AtumColor color) {
         scratchCenter.set(dir).mul(distance);
         billboardBasis(dir, scratchRight, scratchUp);
+        float u0 = sprite.u0();
+        float v0 = sprite.v0();
+        float u1 = sprite.u1();
+        float v1 = sprite.v1();
 
-        RenderSystem.setShader(GameRenderer::getPositionTexShader);
-        RenderSystem.setShaderTexture(0, texture);
-        RenderSystem.setShaderColor(color.getRed(), color.getGreen(), color.getBlue(), visible);
-        RenderSystem.blendFunc(GlStateManager.SourceFactor.SRC_ALPHA, GlStateManager.DestFactor.ONE);
+        McShaders.use(McShaders.Core.POSITION_TEX);
+        McGlState.setShaderTexture(0, sprite.texture());
+        McGlState.setShaderColor(color.getRed(), color.getGreen(), color.getBlue(), visible);
+        McGlState.blendFunc(McGlState.Blend.SRC_ALPHA, McGlState.Blend.ONE);
 
-        builder.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_TEX);
+        builder.begin(PrimitiveTopology.QUADS, DefaultVertexFormat.POSITION_TEX);
         billboardVertex(builder, pose, scratchCenter, scratchRight, scratchUp, -size, -size, u0, v0);
         billboardVertex(builder, pose, scratchCenter, scratchRight, scratchUp,  size, -size, u1, v0);
         billboardVertex(builder, pose, scratchCenter, scratchRight, scratchUp,  size,  size, u1, v1);
         billboardVertex(builder, pose, scratchCenter, scratchRight, scratchUp, -size,  size, u0, v1);
-        BufferUploader.drawWithShader(builder.end());
+        builder.draw();
 
-        RenderSystem.defaultBlendFunc();
-        RenderSystem.setShaderColor(1, 1, 1, 1);
+        McGlState.defaultBlendFunc();
+        McGlState.setShaderColor(1, 1, 1, 1);
     }
 
     // ====== STARS ======
 
-    private static void renderStars(BufferBuilder builder, Matrix4f pose) {
+    private static void renderStars(McVertexBuilder builder, Matrix4f pose) {
         float night = 1f - currentDay;
         if (night <= 0.05f) {
             return;
         }
 
-        RenderSystem.setShader(GameRenderer::getPositionColorShader);
-        RenderSystem.setShaderColor(1, 1, 1, 1);
-        RenderSystem.blendFunc(GlStateManager.SourceFactor.SRC_ALPHA, GlStateManager.DestFactor.ONE);
+        McShaders.use(McShaders.Core.POSITION_COLOR);
+        McGlState.setShaderColor(1, 1, 1, 1);
+        McGlState.blendFunc(McGlState.Blend.SRC_ALPHA, McGlState.Blend.ONE);
 
-        builder.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_COLOR);
+        builder.begin(PrimitiveTopology.QUADS, DefaultVertexFormat.POSITION_COLOR);
         for (int star = 0; star < STAR_QUAD.length; star++) {
             float twinkle = 0.65f + 0.35f * (float) Math.sin(currentTimeSec * 1.6f + STAR_PHASE[star]);
             int alpha = (int) (255f * night * twinkle * STAR_BRIGHT);
@@ -700,12 +719,12 @@ public final class VRMenuSky {
 
         emitShootingStar(builder, pose, night);
 
-        BufferUploader.drawWithShader(builder.end());
+        builder.draw();
 
-        RenderSystem.defaultBlendFunc();
+        McGlState.defaultBlendFunc();
     }
 
-    private static void emitShootingStar(BufferBuilder builder, Matrix4f pose,
+    private static void emitShootingStar(McVertexBuilder builder, Matrix4f pose,
                                          float night) {
 
         int windowIndex = (int) (currentTimeSec / SHOOTINGSTAR_FREQUENCY);
@@ -826,7 +845,7 @@ public final class VRMenuSky {
 
     // ====== UFO ======
 
-    private static void renderUfo(BufferBuilder builder, Matrix4f pose) {
+    private static void renderUfo(McVertexBuilder builder, Matrix4f pose) {
         if (currentSceneTime >= 1f) {
             return; //only between 00:00AM and 01:00AM
         }
@@ -849,12 +868,12 @@ public final class VRMenuSky {
         float fade = clamp01(Math.min(ageSec, UFO_LIFETIME - ageSec) / UFO_FADE_SEC);
         int chaseStep = (int) (ageSec * UFO_LIGHT_STEP_HZ) % UFO_LIGHT_GROUPS;
 
-        RenderSystem.setShader(GameRenderer::getPositionTexColorShader);
-        RenderSystem.setShaderTexture(0, GLOW_SPRITE);
-        RenderSystem.setShaderColor(1, 1, 1, 1);
-        RenderSystem.blendFunc(GlStateManager.SourceFactor.SRC_ALPHA, GlStateManager.DestFactor.ONE);
+        McShaders.use(McShaders.Core.POSITION_TEX_COLOR);
+        McGlState.setShaderTexture(0, GLOW_SPRITE);
+        McGlState.setShaderColor(1, 1, 1, 1);
+        McGlState.blendFunc(McGlState.Blend.SRC_ALPHA, McGlState.Blend.ONE);
 
-        builder.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR);
+        builder.begin(PrimitiveTopology.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR);
         for (int i = 0; i < UFO_DOTS_AMOUNT; i++) {
             float dotX = ufoX + scratchRight.x * UFO_LX[i] + scratchUp.x * UFO_LY[i];
             float dotY = ufoY + scratchRight.y * UFO_LX[i] + scratchUp.y * UFO_LY[i];
@@ -876,10 +895,10 @@ public final class VRMenuSky {
                         UFO_DOT_CORE, UFO_BODY_CORE, (int) (235 * fade));
             }
         }
-        BufferUploader.drawWithShader(builder.end());
+        builder.draw();
 
-        RenderSystem.defaultBlendFunc();
-        RenderSystem.setShaderColor(1, 1, 1, 1);
+        McGlState.defaultBlendFunc();
+        McGlState.setShaderColor(1, 1, 1, 1);
     }
 
     private static void ufoParkingDir(int cycle, Vector3f out) {
@@ -900,27 +919,40 @@ public final class VRMenuSky {
 
     // ====== VISOR SIGN ======
 
-    private static void renderVisorSign(BufferBuilder builder,
+    private static void renderVisorSign(McVertexBuilder builder,
                                         Matrix4f pose) {
         ensureGlowSprite();
+        if (VISOR_ICON == null) {
+            VISOR_ICON = createIconDotsSign();
+        }
 
         float gleamPos = (float) (currentTimeSec * VISOR_GLEAM_SPEED) % (VISOR_TOTAL_COLS + VISOR_GLEAM_W * 2f) - VISOR_GLEAM_W;
         boolean asCloudDots = currentDay >= VISOR_DAY_THRESHOLD;
 
-        RenderSystem.setShader(GameRenderer::getPositionTexColorShader);
-        RenderSystem.setShaderTexture(0, GLOW_SPRITE);
-        RenderSystem.setShaderColor(1, 1, 1, 1);
+        McShaders.use(McShaders.Core.POSITION_TEX_COLOR);
+        McGlState.setShaderTexture(0, GLOW_SPRITE);
+        McGlState.setShaderColor(1, 1, 1, 1);
         if (asCloudDots) {
-            RenderSystem.defaultBlendFunc();
+            McGlState.defaultBlendFunc();
         } else {
-            RenderSystem.blendFunc(GlStateManager.SourceFactor.SRC_ALPHA, GlStateManager.DestFactor.ONE); // additive
+            McGlState.blendFunc(McGlState.Blend.SRC_ALPHA, McGlState.Blend.ONE); // additive
         }
 
+        builder.begin(PrimitiveTopology.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR);
+        emitSignDots(builder, pose, VISOR_SIGN, gleamPos, asCloudDots);
+        emitSignDots(builder, pose, VISOR_ICON, gleamPos, asCloudDots);
+        builder.draw();
+
+        McGlState.defaultBlendFunc();
+        McGlState.setShaderColor(1, 1, 1, 1);
+    }
+
+    private static void emitSignDots(McVertexBuilder builder, Matrix4f pose,
+                                     DotsSign sign, float gleamPos, boolean asCloudDots) {
         int[] cloudTint = {0, 0, 0};
-        builder.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR);
-        for (int i = 0; i < VISOR_SIGN.n; i++) {
-            float gleam = 1f + VISOR_GLEAM_AMT * Math.max(0f, 1f - Math.abs(VISOR_SIGN.col[i] - gleamPos) / VISOR_GLEAM_W);
-            float cx = VISOR_SIGN.px[i], cy = VISOR_SIGN.py[i], cz = VISOR_SIGN.pz[i]; // anchored
+        for (int i = 0; i < sign.n; i++) {
+            float gleam = 1f + VISOR_GLEAM_AMT * Math.max(0f, 1f - Math.abs(sign.col[i] - gleamPos) / VISOR_GLEAM_W);
+            float cx = sign.px[i], cy = sign.py[i], cz = sign.pz[i]; // anchored
             if (asCloudDots) {
                 // calmer, slower breathing for the cloud skin
                 float pulse = 1f + VISOR_PULSE_AMT * 0.6f * (float) Math.sin(currentTimeSec * VISOR_PULSE_SPEED * 0.7f + i * 1.3f);
@@ -938,15 +970,11 @@ public final class VRMenuSky {
                 spriteQuad(builder, pose, cx, cy, cz, VISOR_STAR_CORE * pulse, color, coreAlpha);
             }
         }
-        BufferUploader.drawWithShader(builder.end());
-
-        RenderSystem.defaultBlendFunc();
-        RenderSystem.setShaderColor(1, 1, 1, 1);
     }
 
     // ====== CLOUDS ======
 
-    private static void renderClouds(BufferBuilder builder,
+    private static void renderClouds(McVertexBuilder builder,
                                      Matrix4f pose) {
 
         double driftX = CLOUD_DRIFT_X * currentTimeSec;
@@ -959,7 +987,7 @@ public final class VRMenuSky {
 
         float cullDistance = CLOUD_RANGE + 24f;
 
-        builder.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_COLOR);
+        builder.begin(PrimitiveTopology.QUADS, DefaultVertexFormat.POSITION_COLOR);
         for (int cellX = minCellX; cellX <= maxCellX; cellX++) {
             for (int cellZ = minCellZ; cellZ <= maxCellZ; cellZ++) {
                 if (hash01(cellX, cellZ, 0) > CLOUD_FILL) {
@@ -981,10 +1009,10 @@ public final class VRMenuSky {
                 emitCloud(builder, pose, cloudCenterX, cloudCenterZ, cellX, cellZ);
             }
         }
-        BufferUploader.drawWithShader(builder.end());
+        builder.draw();
     }
 
-    private static void emitCloud(BufferBuilder builder, Matrix4f pose,
+    private static void emitCloud(McVertexBuilder builder, Matrix4f pose,
                                   float cloudCenterX, float cloudCenterZ,
                                   int cellX, int cellZ) {
         // deterministic shape + rotation pick for this cell, from the pre-baked variants
@@ -1047,7 +1075,7 @@ public final class VRMenuSky {
         }
     }
 
-    private static void cloudFace(BufferBuilder builder, Matrix4f pose,
+    private static void cloudFace(McVertexBuilder builder, Matrix4f pose,
                                   int[] faceColor,
                                   float corner1X, float corner1Y, float corner1Z,
                                   float corner2X, float corner2Y, float corner2Z,
@@ -1059,7 +1087,7 @@ public final class VRMenuSky {
         cloudVertex(builder, pose, corner4X, corner4Y, corner4Z, faceColor);
     }
 
-    private static void cloudVertex(BufferBuilder builder, Matrix4f pose,
+    private static void cloudVertex(McVertexBuilder builder, Matrix4f pose,
                                     float x, float y, float z,
                                     int[] faceColor) {
         float dist = (float) Math.sqrt(x * x + z * z);
@@ -1120,7 +1148,7 @@ public final class VRMenuSky {
         return removedAny;
     }
 
-    private static void renderUserDots(BufferBuilder builder, Matrix4f pose) {
+    private static void renderUserDots(McVertexBuilder builder, Matrix4f pose) {
         if (userDotCount == 0) {
             return;
         }
@@ -1131,17 +1159,17 @@ public final class VRMenuSky {
 
         boolean showClouds = currentDay >= VISOR_DAY_THRESHOLD;
 
-        RenderSystem.setShader(GameRenderer::getPositionTexColorShader);
-        RenderSystem.setShaderTexture(0, GLOW_SPRITE);
-        RenderSystem.setShaderColor(1, 1, 1, 1);
+        McShaders.use(McShaders.Core.POSITION_TEX_COLOR);
+        McGlState.setShaderTexture(0, GLOW_SPRITE);
+        McGlState.setShaderColor(1, 1, 1, 1);
         if (showClouds) {
-            RenderSystem.defaultBlendFunc();
+            McGlState.defaultBlendFunc();
         } else {
-            RenderSystem.blendFunc(GlStateManager.SourceFactor.SRC_ALPHA, GlStateManager.DestFactor.ONE); // additive
+            McGlState.blendFunc(McGlState.Blend.SRC_ALPHA, McGlState.Blend.ONE); // additive
         }
 
 
-        builder.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR);
+        builder.begin(PrimitiveTopology.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR);
         for (int i = 0; i < userDotCount; i++) {
             scratchDir.set(userDotX[i], userDotY[i], userDotZ[i]);
             billboardBasis(scratchDir, scratchRight, scratchUp);
@@ -1161,12 +1189,12 @@ public final class VRMenuSky {
                 dotQuad(builder, pose, scratchRight, scratchUp, cx, cy, cz, VISOR_STAR_CORE, colorCore, 255);
             }
         }
-        BufferUploader.drawWithShader(builder.end());
+        builder.draw();
 
-        RenderSystem.defaultBlendFunc();
-        RenderSystem.setShaderColor(1, 1, 1, 1);
+        McGlState.defaultBlendFunc();
+        McGlState.setShaderColor(1, 1, 1, 1);
     }
-    static ResourceLocation glowSprite() {
+    static Identifier glowSprite() {
         ensureGlowSprite();
         return GLOW_SPRITE;
     }
@@ -1191,13 +1219,13 @@ public final class VRMenuSky {
 
 
     // --- SKY BOX
-    private static void zenith(BufferBuilder builder, Matrix4f pose, float x, float y, float z) {
+    private static void zenith(McVertexBuilder builder, Matrix4f pose, float x, float y, float z) {
         builder.vertex(pose, x, y, z)
                 .color(currentZenith.getRedInt(), currentZenith.getGreenInt(), currentZenith.getBlueInt(), 255)
                 .endVertex();
     }
 
-    private static void horizon(BufferBuilder builder, Matrix4f pose, float x, float y, float z) {
+    private static void horizon(McVertexBuilder builder, Matrix4f pose, float x, float y, float z) {
         float inverseLen = 1f / (float) Math.sqrt(x * x + z * z);
         float sunWeight = 0.5f + 0.5f * (x * inverseLen * sunAzimuthX + z * inverseLen * sunAzimuthZ);
         float duskAmount = currentTwilight * (0.25f + 0.75f * sunWeight);
@@ -1234,7 +1262,7 @@ public final class VRMenuSky {
         return new Vector3f[]{right, up};
     }
 
-    private static void billboardVertex(BufferBuilder builder,
+    private static void billboardVertex(McVertexBuilder builder,
                                         Matrix4f pose,
                                         Vector3f center, Vector3f right, Vector3f up,
                                         float rightOffset, float upOffset,
@@ -1253,14 +1281,14 @@ public final class VRMenuSky {
         out[2] = baseZ + right.z * rightOffset + up.z * upOffset;
     }
 
-    private static void starVertex(BufferBuilder builder,
+    private static void starVertex(McVertexBuilder builder,
                                    Matrix4f pose,
                                    float[] p, int alpha) {
         builder.vertex(pose, p[0], p[1], p[2]).color(255, 255, 255, alpha).endVertex();
     }
 
     // ---- GLOWING DOTS
-    private static void spriteQuad(BufferBuilder builder,
+    private static void spriteQuad(McVertexBuilder builder,
                                    Matrix4f pose,
                                    float cx, float cy, float cz,
                                    float hs,
@@ -1273,14 +1301,14 @@ public final class VRMenuSky {
         return Math.max(0f, Math.min(1f, v));
     }
 
-    private static void dotQuad(BufferBuilder builder, Matrix4f pose, Vector3f right, Vector3f up,
+    private static void dotQuad(McVertexBuilder builder, Matrix4f pose, Vector3f right, Vector3f up,
                                 float cx, float cy, float cz, float hs,
                                 AtumColor color, int a) {
         dotQuad(builder, pose, right, up, cx, cy, cz, hs, color.asIntArray(false), a);
     }
 
     // glow-sprite quad around a center, in an arbitrary billboard basis
-    private static void dotQuad(BufferBuilder builder, Matrix4f pose,
+    private static void dotQuad(McVertexBuilder builder, Matrix4f pose,
                                 Vector3f right, Vector3f up,
                                 float cx, float cy, float cz, float hs,
                                 int[] color, int a) {
@@ -1290,7 +1318,7 @@ public final class VRMenuSky {
         dotVertex(builder, pose, right, up, cx, cy, cz, -hs,  hs, 0f, 1f, color[0], color[1], color[2], a);
     }
 
-    private static void dotVertex(BufferBuilder builder, Matrix4f pose,
+    private static void dotVertex(McVertexBuilder builder, Matrix4f pose,
                                   Vector3f right, Vector3f up,
                                   float cx, float cy, float cz,
                                   float offsetX, float offsetY, float u, float v, int r, int g, int b, int a) {
@@ -1317,16 +1345,15 @@ public final class VRMenuSky {
                 alpha = alpha * alpha; // tighter core, softer halo
                 int alphaByte = (int) (alpha * 255f);
 
-                img.setPixelRGBA(x, y, (alphaByte << 24) | 0x00FFFFFF);
+                McRenderUtils.setPixelArgb(img, x, y, (alphaByte << 24) | 0x00FFFFFF);
             }
         }
-        DynamicTexture tex = new DynamicTexture(img);
-        GLOW_SPRITE = Minecraft.getInstance().getTextureManager().register("visor_glow", tex);
+        DynamicTexture tex = McRenderUtils.newDynamicTexture("visor_glow", img);
+        GLOW_SPRITE = McRenderUtils.registerDynamicTexture("visor_glow", tex);
     }
 
     // ---- VISOR SIGN
     private static DotsSign createDotsSign(String[][] glyphs) {
-        Vector3f center = new Vector3f(VISOR_DIR).mul(VISOR_RADIUS);
         float centerCol = (VISOR_TOTAL_COLS - 1) / 2f;
         float centerRow = (GLYPH_H - 1) / 2f;
 
@@ -1343,15 +1370,95 @@ public final class VRMenuSky {
                     int globalCol = glyphIndex * (GLYPH_W + GLYPH_GAP) + glyphCol;
                     float localX = (centerCol - globalCol) * VISOR_DOTS_SPACING; // un-mirrored
                     float localY = (centerRow - row) * VISOR_DOTS_SPACING;  // +up (row 0 = top)
-                    points.add(new float[]{
-                            center.x + VISOR_RIGHT.x * localX + VISOR_UP.x * localY,
-                            center.y + VISOR_RIGHT.y * localX + VISOR_UP.y * localY,
-                            center.z + VISOR_RIGHT.z * localX + VISOR_UP.z * localY
-                    });
+                    points.add(signPoint(localX, localY));
                     columns.add(globalCol);
                 }
             }
         }
+        return toDotsSign(points, columns);
+    }
+
+    private static DotsSign createIconDotsSign() {
+        boolean[][] lit;
+        try (InputStream stream = Minecraft.getInstance().getResourceManager().open(VISOR_ICON_TEXTURE);
+             NativeImage image = NativeImage.read(stream)) {
+            lit = withoutCornerElbows(sampleIconGrid(image));
+        } catch (Exception e) {
+            VisorClientImpl.LOGGER.warn("Failed to load the main menu sky icon {}", VISOR_ICON_TEXTURE, e);
+            lit = new boolean[0][];
+        }
+
+        float centerCol = (VISOR_ICON_COLS - 1) / 2f;
+        float bottomY = ((GLYPH_H - 1) / 2f + VISOR_ICON_GAP + 1) * VISOR_DOTS_SPACING;
+        int colOffset = (VISOR_TOTAL_COLS - VISOR_ICON_COLS) / 2; // gleam sweeps icon and glyphs together
+        List<float[]> points = new ArrayList<>();
+        List<Integer> columns = new ArrayList<>();
+        for (int row = 0; row < lit.length; row++) {
+            for (int col = 0; col < VISOR_ICON_COLS; col++) {
+                if (!lit[row][col]) {
+                    continue;
+                }
+                float localX = (centerCol - col) * VISOR_DOTS_SPACING;
+                float localY = bottomY + (VISOR_ICON_ROWS - 1 - row) * VISOR_DOTS_SPACING;
+                points.add(signPoint(localX, localY));
+                columns.add(colOffset + col);
+            }
+        }
+        return toDotsSign(points, columns);
+    }
+
+    private static boolean[][] sampleIconGrid(NativeImage image) {
+        boolean[][] lit = new boolean[VISOR_ICON_ROWS][VISOR_ICON_COLS];
+        for (int row = 0; row < VISOR_ICON_ROWS; row++) {
+            int y = (int) ((row + 0.5f) * image.getHeight() / VISOR_ICON_ROWS);
+            for (int col = 0; col < VISOR_ICON_COLS; col++) {
+                int x = (int) ((col + 0.5f) * image.getWidth() / VISOR_ICON_COLS);
+                lit[row][col] = (McRenderUtils.getPixelArgb(image, x, y) >>> 24) >= VISOR_ICON_MIN_ALPHA;
+            }
+        }
+        return lit;
+    }
+
+    private static boolean[][] withoutCornerElbows(boolean[][] lit) {
+        boolean[][] out = new boolean[lit.length][];
+        for (int row = 0; row < lit.length; row++) {
+            out[row] = lit[row].clone();
+            for (int col = 0; col < lit[row].length; col++) {
+                if (lit[row][col] && isCornerElbow(lit, row, col)) {
+                    out[row][col] = false;
+                }
+            }
+        }
+        return out;
+    }
+
+    private static boolean isCornerElbow(boolean[][] lit, int row, int col) {
+        int neighbours = 0;
+        for (int dRow = -1; dRow <= 1; dRow++) {
+            for (int dCol = -1; dCol <= 1; dCol++) {
+                if ((dRow != 0 || dCol != 0) && isLit(lit, row + dRow, col + dCol)) {
+                    neighbours++;
+                }
+            }
+        }
+        return neighbours == 2
+                && (isLit(lit, row, col - 1) || isLit(lit, row, col + 1))
+                && (isLit(lit, row - 1, col) || isLit(lit, row + 1, col));
+    }
+
+    private static boolean isLit(boolean[][] lit, int row, int col) {
+        return row >= 0 && row < lit.length && col >= 0 && col < lit[row].length && lit[row][col];
+    }
+
+    private static float[] signPoint(float localX, float localY) {
+        return new float[]{
+                VISOR_DIR.x * VISOR_RADIUS + VISOR_RIGHT.x * localX + VISOR_UP.x * localY,
+                VISOR_DIR.y * VISOR_RADIUS + VISOR_RIGHT.y * localX + VISOR_UP.y * localY,
+                VISOR_DIR.z * VISOR_RADIUS + VISOR_RIGHT.z * localX + VISOR_UP.z * localY
+        };
+    }
+
+    private static DotsSign toDotsSign(List<float[]> points, List<Integer> columns) {
         int count = points.size();
         float[] px = new float[count];
         float[] py = new float[count];

@@ -7,9 +7,10 @@ import org.vmstudio.visor.api.client.gui.overlays.VROverlay;
 import org.vmstudio.visor.api.client.gui.overlays.framework.VROverlayScreen;
 import org.vmstudio.visor.core.client.ClientContext;
 import org.vmstudio.visor.core.client.VisorClientImpl;
+import org.vmstudio.visor.core.client.render.helpers.RenderStateHelper;
 import org.vmstudio.visor.core.client.render.target.RenderTargetHolder;
 import org.vmstudio.visor.core.client.render.target.VRRenderTarget;
-import net.minecraft.client.Minecraft;
+import org.vmstudio.visor.api.compatibility.mcversion.render.McRenderTarget;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.HashMap;
@@ -67,17 +68,14 @@ public class RenderTargetGUI implements RenderTargetHolder {
 
     @Override
     public void resize(int width, int height) throws Exception {
-        target.resize(
-                width, height,
-                Minecraft.ON_OSX
-        );
+        McRenderTarget.resize(target, width, height);
         for(var entry : overlayTargets.entrySet()) {
-            if(target==null) continue;
+            if(entry.getValue()==null) continue;
             var overlay = entry.getKey();
-            entry.getValue().resize(
+            McRenderTarget.resize(
+                    entry.getValue(),
                     overlay.getRequestedWidth(),
-                    overlay.getRequestedHeight(),
-                    Minecraft.ON_OSX
+                    overlay.getRequestedHeight()
             );
             overlay.updateSize();
         }
@@ -104,6 +102,9 @@ public class RenderTargetGUI implements RenderTargetHolder {
         VRRenderTarget renderTarget = overlayTargets.get(overlayScreen);
         boolean visible = overlayScreen.isVisible();
         if(renderTarget == null && visible){
+            // drain not related GL errors
+            RenderStateHelper.drainExternalGLErrors("VROverlay target " + overlayScreen.getId());
+
             renderTarget = new VRRenderTarget(
                     "Overlay " + overlayScreen.getId(),
                     overlayScreen.getRequestedWidth(),
@@ -123,11 +124,7 @@ public class RenderTargetGUI implements RenderTargetHolder {
             if(neededWidth != renderTarget.width
                     || neededHeight != renderTarget.height){
                 renderTarget.destroyBuffers();
-                renderTarget.resize(
-                        neededWidth,
-                        neededHeight,
-                        Minecraft.ON_OSX
-                );
+                McRenderTarget.resize(renderTarget, neededWidth, neededHeight);
                 overlayScreen.updateSize();
             }
         }

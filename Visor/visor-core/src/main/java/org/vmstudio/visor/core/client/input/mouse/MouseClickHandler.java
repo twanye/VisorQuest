@@ -1,5 +1,6 @@
 package org.vmstudio.visor.core.client.input.mouse;
 
+import com.mojang.blaze3d.platform.InputConstants;
 import lombok.Setter;
 import org.vmstudio.visor.api.client.ClientFeature;
 import org.vmstudio.visor.api.client.gui.overlays.VROverlay;
@@ -7,9 +8,10 @@ import org.vmstudio.visor.api.client.gui.overlays.framework.VROverlayScreen;
 import org.vmstudio.visor.api.client.input.InputHelper;
 import org.vmstudio.visor.api.client.input.MouseButtonType;
 import org.vmstudio.visor.api.common.HandType;
+import org.vmstudio.visor.api.server.VRServerSettings;
 import org.vmstudio.visor.core.client.ClientContext;
+import org.vmstudio.visor.api.compatibility.mcversion.McVersionClientUtils;
 import org.jetbrains.annotations.NotNull;
-import org.lwjgl.glfw.GLFW;
 
 import static org.vmstudio.visor.core.client.VisorClientImpl.MC;
 
@@ -33,7 +35,6 @@ public class MouseClickHandler {
     private VROverlay pressedOverlay;
     private boolean wasPressedOverlay;
     private boolean ignoreSingleClick;
-    private boolean ignoreSingleRelease;
 
     private boolean gamePressed;
 
@@ -162,7 +163,7 @@ public class MouseClickHandler {
         }
 
         if (ClientContext.cursorHandler.isCursorHandFocused()
-                || MC.screen != null
+                || McVersionClientUtils.screen() != null
                 || MC.player == null) {
             var activeHand = ClientContext.cursorHandler.getCursorHand();
             if (handType != activeHand) {
@@ -208,8 +209,6 @@ public class MouseClickHandler {
             InputHelper.releaseMouse(buttonType);
             gamePressed = false;
         }
-
-        ignoreSingleRelease = false;
     }
 
     public void onClear() {
@@ -228,7 +227,6 @@ public class MouseClickHandler {
         pressedOverlay = null;
         wasPressedOverlay = false;
         ignoreSingleClick = false;
-        ignoreSingleRelease = false;
         gamePressed = false;
     }
 
@@ -239,7 +237,7 @@ public class MouseClickHandler {
             processOverlay(focusedOverlay);
             return;
         }
-        if (MC.screen != null) {
+        if (McVersionClientUtils.screen() != null) {
             processScreen();
             return;
         }
@@ -266,27 +264,26 @@ public class MouseClickHandler {
         }
         if (MC.level != null) {
             //clicked outside of overlay screen, close the screen
-            InputHelper.pressKey(GLFW.GLFW_KEY_ESCAPE);
-            InputHelper.releaseKey(GLFW.GLFW_KEY_ESCAPE);
+            InputHelper.pressKey(InputConstants.KEY_ESCAPE);
+            InputHelper.releaseKey(InputConstants.KEY_ESCAPE);
         }
     }
 
     private void processGame(@NotNull HandType handType) {
-        // update active hand if only one hand is pressed
-        var activeHand = ClientContext.localPlayer.getActiveHand();
-        if (activeHand != handType) {
+        // switch active hand if only one hand is pressed
+        var localPlayer = ClientContext.localPlayer;
+        if (localPlayer.getActiveHand() != handType) {
             if ((mainHandPressed && !offhandPressed)
                     || (!mainHandPressed && offhandPressed)) {
-                ClientContext.localPlayer.setActiveHand(handType);
-                if(!(forcedMain && mainHandPressed)
-                        && !(forcedOffhand && offhandPressed)) {
-                    ignoreSingleRelease = true;
+                boolean forced = (forcedMain && mainHandPressed)
+                        || (forcedOffhand && offhandPressed);
+                if (VRServerSettings.isTwoHandedVR()) {
+                    localPlayer.setActiveHand(handType);
+                } else if (handType == HandType.OFFHAND && !forced) {
+                    //two-handed mode disabled, offhand cannot be active
+                    // (except rare cases outside mouse clicks)
                     return;
                 }
-            }
-            if (ignoreSingleRelease) {
-                ignoreSingleRelease = false;
-                return;
             }
         }
         InputHelper.pressMouse(buttonType);

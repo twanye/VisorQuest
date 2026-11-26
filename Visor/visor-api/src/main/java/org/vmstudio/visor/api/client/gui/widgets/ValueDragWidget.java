@@ -3,12 +3,12 @@ package org.vmstudio.visor.api.client.gui.widgets;
 import lombok.Getter;
 import org.vmstudio.visor.api.client.gui.GuiTexture;
 import org.vmstudio.visor.api.client.gui.widgets.info.WidgetInfoValueDrag;
-import net.minecraft.client.gui.GuiGraphics;
-import net.minecraft.client.gui.components.AbstractWidget;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
+import org.vmstudio.visor.api.compatibility.mcversion.gui.McWidget;
 import net.minecraft.network.chat.Component;
 
 
-public class ValueDragWidget extends AbstractWidget {
+public class ValueDragWidget extends McWidget {
 
     @Getter
     private final WidgetInfoValueDrag widgetInfo;
@@ -66,7 +66,7 @@ public class ValueDragWidget extends AbstractWidget {
     }
 
     @Override
-    protected void renderWidget(GuiGraphics guiGraphics,
+    protected void renderWidget(GuiGraphicsExtractor guiGraphics,
                                 int mouseX, int mouseY,
                                 float partialTick) {
         if(dragging && lastDragCall + 150 < System.currentTimeMillis()){

@@ -1,6 +1,9 @@
 package org.vmstudio.visor.core.client.render.decoration.effects;
 
-import com.mojang.blaze3d.systems.RenderSystem;
+import org.vmstudio.visor.api.compatibility.mcversion.render.McRenderUtils;
+import org.vmstudio.visor.api.compatibility.mcversion.render.McGlState;
+import org.vmstudio.visor.api.compatibility.mcversion.render.McShaders;
+import org.vmstudio.visor.api.compatibility.mcversion.render.McVertexBuilder;
 import com.mojang.blaze3d.vertex.*;
 import com.mojang.math.Axis;
 import org.vmstudio.visor.api.client.player.pose.VRPlayerPoseClient;
@@ -11,18 +14,18 @@ import org.vmstudio.visor.api.client.render.decoration.annotations.RegisterVRGam
 import org.vmstudio.visor.api.client.render.decoration.effects.VRGameEffect;
 import org.vmstudio.visor.api.common.addon.VisorAddon;
 import org.vmstudio.visor.core.client.ClientContext;
-import org.vmstudio.visor.extensions.client.render.GameRendererExtension;
+import org.vmstudio.visor.core.client.render.camera.VRCameraEntitySwap;
+import org.vmstudio.visor.core.client.render.camera.VRCameraOverlaps;
 import org.vmstudio.visor.core.client.render.helpers.RenderPoseHelper;
-import net.minecraft.client.renderer.GameRenderer;
+import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.texture.TextureAtlasSprite;
 import net.minecraft.client.resources.model.ModelBakery;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 import net.minecraft.util.Mth;
 import org.jetbrains.annotations.NotNull;
 import org.joml.Matrix4f;
 import org.lwjgl.opengl.GL11C;
-
-import static org.vmstudio.visor.core.client.VisorClientImpl.MC;
+import com.mojang.renderpearl.api.pipeline.PrimitiveTopology;
 
 
 @RegisterVRGameEffect
@@ -45,19 +48,22 @@ public class GameEffectOnFire extends VRGameEffect {
         // --- Prepare variables ---
         VRPlayerPoseClient renderPose = ClientContext.localPlayer.getPoseData(PlayerPoseType.RENDER);
         float fireHeight = (float)(renderPose.getHeadPivot().y()
-                - ((GameRendererExtension)MC.gameRenderer)
-                .visor$getCameraEntityCache()
+                - VRCameraEntitySwap.getCameraEntityCache()
                 .getY());
 
-        TextureAtlasSprite sprite = ModelBakery.FIRE_1.sprite();
-        ResourceLocation atlas = sprite.atlasLocation();
+        //? if >=1.21.9 {
+        TextureAtlasSprite sprite = Minecraft.getInstance().getAtlasManager().get(ModelBakery.FIRE_1);
+        //?} else {
+        /*TextureAtlasSprite sprite = ModelBakery.FIRE_1.sprite();
+        *///?}
+        Identifier atlas = sprite.atlasLocation();
         float uMin = sprite.getU0();
         float uMax = sprite.getU1();
         float vMin = sprite.getV0();
         float vMax = sprite.getV1();
         float midU = (uMin + uMax) * 0.5f;
         float midV = (vMin + vMax) * 0.5f;
-        float shrink = sprite.uvShrinkRatio();
+        float shrink = McRenderUtils.uvShrinkRatio(sprite);
 
         float u0 = Mth.lerp(shrink, uMin, midU);
         float u1 = Mth.lerp(shrink, uMax, midU);
@@ -65,17 +71,17 @@ public class GameEffectOnFire extends VRGameEffect {
         float v1 = Mth.lerp(shrink, vMax, midV);
 
         // --- GL setup ---
-        RenderSystem.depthFunc(
+        McGlState.depthFunc(
                 renderPass == VRRenderPass.THIRD_PERSON
                         ? GL11C.GL_LEQUAL
                         : GL11C.GL_ALWAYS
         );
-        RenderSystem.enableBlend();
-        RenderSystem.defaultBlendFunc();
-        RenderSystem.enableDepthTest();
+        McGlState.enableBlend();
+        McGlState.defaultBlendFunc();
+        McGlState.enableDepthTest();
 
-        RenderSystem.setShader(GameRenderer::getPositionTexColorShader);
-        RenderSystem.setShaderTexture(0, atlas);
+        McShaders.use(McShaders.Core.POSITION_TEX_COLOR);
+        McGlState.setShaderTexture(0, atlas);
 
         // --- Pose setup ---
         stack.pushPose();
@@ -83,17 +89,17 @@ public class GameEffectOnFire extends VRGameEffect {
         RenderPoseHelper.applyCameraPose(renderPass, stack);
 
         // --- Render ---
-        BufferBuilder buf = Tesselator.getInstance().getBuilder();
+        McVertexBuilder buf = McVertexBuilder.get();
         for (int i = 0; i < 4; i++) {
             stack.pushPose();
             // spin quad around player
-            stack.mulPose(Axis.YP.rotation(
+            McRenderUtils.rotate(stack, Axis.YP.rotation(
                     i * (float)Math.PI/2 - renderPose.getBodyYaw()
             ));
             stack.translate(0, -fireHeight, 0);
 
             Matrix4f mat = stack.last().pose();
-            buf.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR);
+            buf.begin(PrimitiveTopology.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR);
             buf.vertex(mat, -FIRE_HALF_WIDTH,0, -FIRE_HALF_WIDTH)
                     .uv(u1, v1).color(1,1,1,FIRE_ALPHA).endVertex();
             buf.vertex(mat,  FIRE_HALF_WIDTH,0, -FIRE_HALF_WIDTH)
@@ -102,20 +108,20 @@ public class GameEffectOnFire extends VRGameEffect {
                     .uv(u0, v0).color(1,1,1,FIRE_ALPHA).endVertex();
             buf.vertex(mat, -FIRE_HALF_WIDTH, fireHeight,  -FIRE_HALF_WIDTH)
                     .uv(u1, v0).color(1,1,1,FIRE_ALPHA).endVertex();
-            BufferUploader.drawWithShader(buf.end());
+            buf.draw();
 
             stack.popPose();
         }
 
         // --- Restore GL & pose ---
-        RenderSystem.depthFunc(GL11C.GL_LEQUAL);
-        RenderSystem.disableBlend();
+        McGlState.depthFunc(GL11C.GL_LEQUAL);
+        McGlState.disableBlend();
         stack.popPose();
     }
 
     @Override
     public boolean isVisible(@NotNull VRDecorator currentDecorator) {
-        return ((GameRendererExtension) MC.gameRenderer).visor$isOnFire();
+        return VRCameraOverlaps.isOnFire();
     }
 
     @Override

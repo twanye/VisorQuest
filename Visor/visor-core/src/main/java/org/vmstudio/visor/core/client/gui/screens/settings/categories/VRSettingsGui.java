@@ -4,10 +4,11 @@ import org.vmstudio.visor.core.client.gui.screens.settings.OptionWidgetPosition;
 import org.vmstudio.visor.core.client.gui.screens.settings.VROptionsSet;
 import org.vmstudio.visor.core.client.gui.screens.settings.VRSettingsScreen;
 import org.vmstudio.visor.core.client.gui.screens.settings.categories.controls.VRSettingsKeyboardLayouts;
-import org.vmstudio.visor.core.client.settings.VROptionCategory;
+import org.vmstudio.visor.api.client.settings.VROptionCategory;
 import org.vmstudio.visor.core.client.settings.VROptionWidgetType;
 
 import org.vmstudio.visor.core.client.gui.screens.settings.OptionWidgetEntry;
+import org.vmstudio.visor.api.compatibility.mcversion.McVersionClientUtils;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -23,7 +24,7 @@ public class VRSettingsGui extends VROptionsSet {
 
     @Override
     protected VROptionWidgetType[] getOptionTypes() {
-        return VROptionCategory.GUI.types()
+        return VROptionWidgetType.byCategory(VROptionCategory.GUI)
                 .toArray(new VROptionWidgetType[0]);
     }
 
@@ -36,6 +37,13 @@ public class VRSettingsGui extends VROptionsSet {
                         OptionWidgetPosition.LEFT,
                         0,
                         "visor.options.controls.keyboard_layouts.button"
+                ),
+                new OptionWidgetEntry(
+                        this,
+                        new VRSettingsGuiHotbar(getScreen(), this, onWidgetsChanged),
+                        OptionWidgetPosition.RIGHT,
+                        0,
+                        "visor.options.gui.hotbar.button"
                 )
         };
     }
@@ -43,6 +51,6 @@ public class VRSettingsGui extends VROptionsSet {
     @Override
     public void loadDefaults() {
         super.loadDefaults();
-        MC.options.hideGui = false;
+        McVersionClientUtils.setHudHidden(false);
     }
 }

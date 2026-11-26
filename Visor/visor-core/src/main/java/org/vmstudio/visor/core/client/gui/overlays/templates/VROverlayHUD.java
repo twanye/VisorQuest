@@ -1,12 +1,14 @@
 package org.vmstudio.visor.core.client.gui.overlays.templates;
 
 import com.mojang.blaze3d.pipeline.RenderTarget;
-import com.mojang.blaze3d.platform.GlStateManager;
 import net.minecraft.network.chat.Component;
 import org.vmstudio.visor.api.VisorAPI;
+import org.vmstudio.visor.api.compatibility.mcversion.render.McRenderTarget;
+import org.vmstudio.visor.api.compatibility.mcversion.McVersionClientUtils;
 import org.vmstudio.visor.api.client.ClientFeature;
 import org.vmstudio.visor.api.client.gui.overlays.options.OptionTextures;
 import org.vmstudio.visor.api.client.gui.overlays.options.types.OverlayOptionsGeneral;
+import org.vmstudio.visor.api.client.gui.overlays.options.types.OverlayOptionsVisibility;
 import org.vmstudio.visor.api.client.gui.overlays.options.types.properties.PropertyBool;
 import org.vmstudio.visor.api.client.gui.widgets.info.WidgetInfoButtonImaged;
 import org.vmstudio.visor.api.client.player.pose.PoseAnchor;
@@ -22,7 +24,6 @@ import org.vmstudio.visor.api.common.eventbus.listener.VREventListener;
 import org.vmstudio.visor.core.client.ClientContext;
 import org.vmstudio.visor.core.client.render.helpers.RenderStateHelper;
 import org.jetbrains.annotations.NotNull;
-import org.lwjgl.opengl.GL30;
 import org.vmstudio.visor.core.client.gui.overlays.builtin.settings.VROverlaySettings;
 
 import java.util.List;
@@ -64,19 +65,19 @@ public class VROverlayHUD extends VROverlayTemplateFrameBuffer implements VREven
     @Override
     public void onRender(float partialTicks) {
         RenderTarget src = ClientContext.renderer.guiTarget.getTarget();
-        updateRegionTargetFromSource(src, true);
+        updateRegionTargetFromSource(src);
     }
 
     @Override
     public void onPreTick() {
         RenderTarget src = ClientContext.renderer.guiTarget.getTarget();
-        updateRegionTargetFromSource(src, false);
+        updateRegionTargetFromSource(src);
         super.onPreTick();
     }
 
     @Override
     public boolean updateVisibility() {
-        return MC.screen == null
+        return McVersionClientUtils.screen() == null
                 && MC.player != null;
     }
 
@@ -90,7 +91,7 @@ public class VROverlayHUD extends VROverlayTemplateFrameBuffer implements VREven
         return hudLayerProperty.getValue();
     }
 
-    private void updateRegionTargetFromSource(RenderTarget src, boolean copyPixels) {
+    private void updateRegionTargetFromSource(RenderTarget src) {
         if (src == null) {
             this.renderTarget = null;
             return;
@@ -120,32 +121,22 @@ public class VROverlayHUD extends VROverlayTemplateFrameBuffer implements VREven
         // Lazily create/resize the region target
         if (regionTarget == null) {
             regionTarget = new RegionRenderTarget(false);
-            regionTarget.resize(rw, rh, true);
+            McRenderTarget.resize(regionTarget, rw, rh);
         } else if (regionTarget.width != rw || regionTarget.height != rh) {
-            regionTarget.resize(rw, rh, true);
+            McRenderTarget.resize(regionTarget, rw, rh);
         }
 
-        this.renderTarget = regionTarget;
-        if (!copyPixels) {
-            return;
-        }
-
-        GlStateManager._glBindFramebuffer(GL30.GL_READ_FRAMEBUFFER, src.frameBufferId);
-        GlStateManager._glBindFramebuffer(GL30.GL_DRAW_FRAMEBUFFER, regionTarget.frameBufferId);
 
         // Copy color only, nearest filtering
-        GlStateManager._glBlitFrameBuffer(
-                srcX0, srcY0, srcX1, srcY1,
-                0, 0, rw, rh,
-                GL30.GL_COLOR_BUFFER_BIT,
-                GL30.GL_NEAREST
+        McRenderTarget.blit(
+                src, srcX0, srcY0, srcX1, srcY1,
+                regionTarget, 0, 0, rw, rh,
+                false
         );
-
-        // Unbind
-        GlStateManager._glBindFramebuffer(GL30.GL_FRAMEBUFFER, 0);
         RenderStateHelper.restoreAfterExternalRender();
 
         // Use the cropped texture as the overlay render target
+        this.renderTarget = regionTarget;
     }
 
     @Override
@@ -183,6 +174,10 @@ public class VROverlayHUD extends VROverlayTemplateFrameBuffer implements VREven
                 }
         );
         return List.of(
+                new OverlayOptionsVisibility(
+                        this,
+                        it -> it.setVisible(true)
+                ),
                 new OverlayOptionsGeneral(
                         this,
                         List.of(hudLayerProperty)
@@ -211,7 +206,16 @@ public class VROverlayHUD extends VROverlayTemplateFrameBuffer implements VREven
     // Minimal concrete RenderTarget for region copies
     private static final class RegionRenderTarget extends RenderTarget {
         public RegionRenderTarget(boolean useDepth) {
-            super(useDepth);
+            //? if >=26.3 {
+            super("visor_hud_region", com.mojang.renderpearl.api.GpuFormat.RGBA8_UNORM,
+                    useDepth ? com.mojang.renderpearl.api.GpuFormat.D32_FLOAT : null);
+            //?} elif >=26.2 {
+            /*super("visor_hud_region", useDepth, com.mojang.blaze3d.GpuFormat.RGBA8_UNORM);
+            *///?} elif >=1.21.5 {
+            /*super("visor_hud_region", useDepth);
+            *///?} else {
+            /*super(useDepth);
+            *///?}
         }
     }
 }

@@ -1,5 +1,6 @@
 package org.vmstudio.visor.core.client.tasks.types.movement;
 
+import org.vmstudio.visor.api.client.input.HapticFeedback;
 import lombok.Getter;
 import org.vmstudio.visor.api.VisorAPI;
 import org.vmstudio.visor.api.client.ClientFeature;
@@ -11,13 +12,15 @@ import org.vmstudio.visor.api.client.tasks.TaskType;
 import org.vmstudio.visor.api.client.tasks.VisorTask;
 import org.vmstudio.visor.api.common.HandType;
 import org.vmstudio.visor.api.common.addon.VisorAddon;
+import org.vmstudio.visor.api.common.addon.component.ComponentPriority;
 import org.vmstudio.visor.api.common.eventbus.listener.VREventHandler;
 import org.vmstudio.visor.api.common.eventbus.listener.VREventListener;
 import org.vmstudio.visor.api.common.network.toserver.ClimbingPayloadToServer;
 import org.vmstudio.visor.api.server.VRServerSettings;
 import org.vmstudio.visor.core.client.ClientContext;
 import org.vmstudio.visor.core.client.network.ClientNetworking;
-import org.vmstudio.visor.core.client.settings.VRClientSettings;
+import org.vmstudio.visor.api.client.settings.VRClientSettings;
+import org.vmstudio.visor.core.client.utils.RoomTasksUtils;
 import org.vmstudio.visor.extensions.client.entity.LocalPlayerExtension;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.core.BlockPos;
@@ -50,8 +53,16 @@ public class TaskRoomClimb extends VisorTask
 
     private static final double HAND_DIRECTION_OFFSET = 0.2D;
     private static final double HAND_DISTANCE_THRESHOLD = 0.5D;
-    private static final int HAPTIC_PULSE = 2000;
     private static final double COLLISION_BOX_OFFSET = 0.1D;
+    private static final double TOP_OF_BLOCK_FRACTION = 0.82;
+
+    private static final int AXIS_X = 1;
+    private static final int AXIS_Y = 2;
+    private static final int AXIS_Z = 4;
+    private static final int[] AXIS_RETREATS = {
+            AXIS_Y, AXIS_Z, AXIS_X,
+            AXIS_X | AXIS_Z, AXIS_X | AXIS_Y, AXIS_Y | AXIS_Z
+    };
 
     private final EnumMap<Direction, AABB> faces = new EnumMap<>(Direction.class);
 
@@ -72,27 +83,9 @@ public class TaskRoomClimb extends VisorTask
             handStates.put(hand, new HandClimbState());
         }
 
-        AABB northFaceBox = new AABB(
-                COLLISION_BOX_OFFSET, 0.0D, 0.9D,
-                0.9D, 1.0D, 1.1D
-        );
-        AABB southFaceBox = new AABB(
-                COLLISION_BOX_OFFSET, 0.0D, -0.1D,
-                0.9D, 1.0D, 0.1D
-        );
-        AABB westFaceBox = new AABB(
-                0.9D, 0.0D, COLLISION_BOX_OFFSET,
-                1.1D, 1.0D, 0.9D
-        );
-        AABB eastFaceBox = new AABB(
-                -COLLISION_BOX_OFFSET, 0.0D, COLLISION_BOX_OFFSET,
-                COLLISION_BOX_OFFSET, 1.0D, 0.9D
-        );
-
-        faces.put(Direction.NORTH, northFaceBox);
-        faces.put(Direction.SOUTH, southFaceBox);
-        faces.put(Direction.WEST, westFaceBox);
-        faces.put(Direction.EAST, eastFaceBox);
+        for (Direction facing : Direction.Plane.HORIZONTAL) {
+            faces.put(facing, wallSlab(facing));
+        }
 
         VisorAPI.eventBus().registerListener(owner,this);
     }
@@ -194,7 +187,10 @@ public class TaskRoomClimb extends VisorTask
             state.isAnchored = false;
         }
         anchoredHand = null;
-        player.setNoGravity(false);
+        if (gravityDisabled) {
+            player.setNoGravity(false);
+            gravityDisabled = false;
+        }
     }
 
 
@@ -205,9 +201,14 @@ public class TaskRoomClimb extends VisorTask
         if(!VRClientSettings.isRoomClimbEnabled()) return false;
         if(!VRServerSettings.isRoomClimbingSupported()) return false;
         if (MC.gameMode == null) return false;
-        if (player == null || !player.isAlive() || player.isPassenger()) return false;
+        if (player == null || !RoomTasksUtils.isBodyFree(player)) return false;
         // Require zero movement input on X and Z axes
         return player.zza == 0 && player.xxa == 0;
+    }
+
+    @Override
+    public @NotNull ComponentPriority getPriority() {
+        return ComponentPriority.HIGHER; //before any other task using climbing task in conditions
     }
 
 
@@ -242,7 +243,7 @@ public class TaskRoomClimb extends VisorTask
                 0.0D,
                 anchoredThisTick ? player.getDeltaMovement().z : 0
         );
-        player.fallDistance = 0;
+        player.resetFallDistance();
 
         double playerX = player.getX();
         double playerY = player.getY();
@@ -275,7 +276,8 @@ public class TaskRoomClimb extends VisorTask
         // If the hand is low relative to the head, try to push the player out of collision
         if (state.anchoredShape != null
                 && anchorHandRoomY <= headPivotRoomY / 2.0
-                && state.anchoredPos.y > state.anchoredShape.maxY * 0.8 + anchoredBlockPos.getY()) {
+                && state.anchoredPos.y > state.anchoredShape.maxY * TOP_OF_BLOCK_FRACTION
+                        + anchoredBlockPos.getY()) {
             Vec3 hmdDirXZ = new Vec3((Vector3f) tickPose.getHmd()
                     .getDirection())
                     .scale(0.1f)
@@ -315,7 +317,7 @@ public class TaskRoomClimb extends VisorTask
         // Reset fall distance for the server-side player
         for (ServerPlayer serverplayer : MC.getSingleplayerServer().getPlayerList().getPlayers()) {
             if (serverplayer.getUUID().equals(MC.player.getUUID())) {
-                serverplayer.fallDistance = 0;
+                serverplayer.resetFallDistance();
                 break;
             }
         }
@@ -328,37 +330,15 @@ public class TaskRoomClimb extends VisorTask
         if (MC.level.noCollision(player, player.getBoundingBox())) {
             return true;
         }
-        // Try alternative adjustments
-        for (int i = 0; i < 8; i++) {
-            double testX = newX, testY = newY, testZ = newZ;
-            switch (i) {
-                case 2:
-                    testY = origY;
-                    break;
-                case 3:
-                    testZ = origZ;
-                    break;
-                case 4:
-                    testX = origX;
-                    break;
-                case 5:
-                    testX = origX;
-                    testZ = origZ;
-                    break;
-                case 6:
-                    testX = origX;
-                    testY = origY;
-                    break;
-                case 7:
-                    testY = origY;
-                    testZ = origZ;
-                    break;
-                default:
-                    break;
-            }
-            player.setPos(testX, testY, testZ);
+        // retreat one or two axes at a time; restoring none is the position already tried above,
+        // restoring all three is the caller's give-up case
+        for (int retreat : AXIS_RETREATS) {
+            player.setPos(
+                    (retreat & AXIS_X) != 0 ? origX : newX,
+                    (retreat & AXIS_Y) != 0 ? origY : newY,
+                    (retreat & AXIS_Z) != 0 ? origZ : newZ
+            );
             if (MC.level.noCollision(player, player.getBoundingBox())) {
-
                 return true;
             }
         }
@@ -386,7 +366,8 @@ public class TaskRoomClimb extends VisorTask
             state.anchoredShape = state.handShape;
             state.isAnchored = true;
 
-            ClientContext.inputManager.triggerHapticPulseMicroSec(hand, HAPTIC_PULSE);
+            ClientContext.inputManager.triggerHapticPulseMicroSec(hand, HapticFeedback.CLIMB_GRAB);
+            return;
         }
     }
 
@@ -437,7 +418,7 @@ public class TaskRoomClimb extends VisorTask
                     ? HandType.OFFHAND : HandType.MAIN;
             handStates.get(otherHand).isAnchored = false;
 
-            ClientContext.inputManager.triggerHapticPulseMicroSec(hand, HAPTIC_PULSE);
+            ClientContext.inputManager.triggerHapticPulseMicroSec(hand, HapticFeedback.CLIMB_GRAB);
             ((LocalPlayerExtension) MC.player).visor$stepSound(handBlockPos, state.anchoredPos);
         }
         state.wasInsideBlock = state.isInsideBlock;
@@ -491,6 +472,23 @@ public class TaskRoomClimb extends VisorTask
                 }
             }
         }
+    }
+
+
+    // LadderBlock.FACING points away from the wall, so vanilla hangs the shape on the opposite
+    // side (NORTH_AABB is box(0,0,13, 16,16,16), i.e. +Z); VineBlock's face flags read the same way.
+    // The grab volume is that wall plane thickened to +-COLLISION_BOX_OFFSET and inset by the same
+    // amount along the free horizontal axis, so a hand in a block corner still grabs only one face.
+    private static AABB wallSlab(Direction facing) {
+        Direction wall = facing.getOpposite();
+        double near = COLLISION_BOX_OFFSET;
+        double far = 1.0D - COLLISION_BOX_OFFSET;
+        double plane = wall.getAxisDirection() == Direction.AxisDirection.POSITIVE ? 1.0D : 0.0D;
+        double low = plane - COLLISION_BOX_OFFSET;
+        double high = plane + COLLISION_BOX_OFFSET;
+        return wall.getAxis() == Direction.Axis.X
+                ? new AABB(low, 0.0D, near, high, 1.0D, far)
+                : new AABB(near, 0.0D, low, far, 1.0D, high);
     }
 
 

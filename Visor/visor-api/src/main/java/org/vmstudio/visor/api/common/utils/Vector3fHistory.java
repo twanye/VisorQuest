@@ -1,6 +1,6 @@
 package org.vmstudio.visor.api.common.utils;
 
-import net.minecraft.Util;
+import net.minecraft.util.Util;
 import org.joml.Vector3f;
 import org.joml.Vector3fc;
 
@@ -113,13 +113,18 @@ public class Vector3fHistory {
         return new Vector3f(x*inv, y*inv, z*inv);
     }
 
+    /**
+     * Helper: walk backward from newest->oldest until timestamp < now - seconds*1000.
+     * Returns the remaining list in 'chronological' order (oldest first).
+     */
     private List<Entry> getRecent(float seconds) {
         long now = clock.getAsLong();
         long cutoff = now - (long)(seconds * 1_000);
         List<Entry> out = new ArrayList<>(capacity);
-        for (Entry e : history) {
-            if (e.timestamp < cutoff) continue;
-            out.add(e);
+        for (Iterator<Entry> it = history.descendingIterator(); it.hasNext(); ) {
+            Entry e = it.next();
+            if (e.timestamp < cutoff) break;
+            out.add(0, e);
         }
         return out;
     }

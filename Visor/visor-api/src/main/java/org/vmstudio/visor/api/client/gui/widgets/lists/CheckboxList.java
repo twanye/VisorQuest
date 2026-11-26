@@ -1,6 +1,6 @@
 package org.vmstudio.visor.api.client.gui.widgets.lists;
 
-import com.mojang.blaze3d.systems.RenderSystem;
+import com.mojang.blaze3d.platform.InputConstants;
 import lombok.Getter;
 import org.vmstudio.visor.api.VisorAPI;
 import org.vmstudio.visor.api.client.gui.helpers.GuiHelper;
@@ -10,8 +10,7 @@ import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
-import net.minecraft.client.gui.GuiGraphics;
-import net.minecraft.client.gui.components.AbstractSelectionList;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.narration.NarrationElementOutput;
 import net.minecraft.client.resources.sounds.SimpleSoundInstance;
 import net.minecraft.client.sounds.SoundManager;
@@ -20,12 +19,14 @@ import net.minecraft.sounds.SoundEvents;
 import net.minecraft.util.Mth;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.vmstudio.visor.api.compatibility.mcversion.gui.McSelectionList;
 
 import java.util.*;
 import java.util.function.Consumer;
 import java.util.function.Function;
+import org.vmstudio.visor.api.compatibility.mcversion.render.McGlState;
 
-public class CheckboxList extends AbstractSelectionList<CheckboxList.CheckboxEntry> {
+public class CheckboxList extends McSelectionList<CheckboxList.CheckboxEntry> {
 
 
     private final int paddingTop;
@@ -53,8 +54,8 @@ public class CheckboxList extends AbstractSelectionList<CheckboxList.CheckboxEnt
         super(Minecraft.getInstance(),
                 widgetInfo.getWidth(),
                 widgetInfo.getHeight(),
+                widgetInfo.getX(),
                 widgetInfo.getY(),
-                widgetInfo.getY()+widgetInfo.getHeight(),
                 widgetInfo.getItemHeight()
         );
 
@@ -67,7 +68,7 @@ public class CheckboxList extends AbstractSelectionList<CheckboxList.CheckboxEnt
 
         this.onChanged = onChanged;
 
-        this.setLeftPos(widgetInfo.getX());
+
         this.setRenderTopAndBottom(false);
         this.setRenderBackground(false);
         this.setRenderSelection(false);
@@ -77,7 +78,7 @@ public class CheckboxList extends AbstractSelectionList<CheckboxList.CheckboxEnt
 
 
     @Override
-    public void render(@NotNull GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTick) {
+    public void renderContents(@NotNull GuiGraphicsExtractor guiGraphics, int mouseX, int mouseY, float partialTick) {
         this.hovered = this.isMouseOver(mouseX, mouseY) ? this.getEntryAtPosition(mouseX, mouseY) : null;
         if (VisorAPI.clientState().stateMode().isActive()
                 && scrolling
@@ -87,22 +88,22 @@ public class CheckboxList extends AbstractSelectionList<CheckboxList.CheckboxEnt
         }
 
         this.enableScissor(guiGraphics);
-        this.renderList(guiGraphics, mouseX, mouseY, partialTick);
+        this.renderRows(guiGraphics, mouseX, mouseY, partialTick);
         guiGraphics.disableScissor();
 
-        int scrollX = this.getScrollbarPosition();
+        int scrollX = this.scrollbarX();
 
-        int maxScroll = this.getMaxScroll();
+        int maxScroll = this.maxScroll();
         if (maxScroll > 0) {
-            int trackTop = this.y0 + this.paddingTop;
-            int trackBottom = this.y1 - this.paddingTop;
+            int trackTop = listTop() + this.paddingTop;
+            int trackBottom = listBottom() - this.paddingTop;
             int viewH = trackBottom - trackTop;
 
             int thumbH = (int)(viewH * (float)viewH / ((float)viewH + maxScroll));
             thumbH = Mth.clamp(thumbH, 32, viewH - 8);
 
             int thumbY = trackTop
-                    + (int)(this.getScrollAmount() * (viewH - thumbH) / (float)maxScroll);
+                    + (int)(this.scrollValue() * (viewH - thumbH) / (float)maxScroll);
             var scrollBarTex = scrolling
                     ? widgetInfo.getTextureScrollBarActive()
                     : widgetInfo.getTextureScrollBar();
@@ -113,21 +114,21 @@ public class CheckboxList extends AbstractSelectionList<CheckboxList.CheckboxEnt
             );
         }
 
-        RenderSystem.disableBlend();
+        McGlState.disableBlend();
     }
 
     @Override
-    protected void renderList(@NotNull GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTick) {
+    protected void renderRows(@NotNull GuiGraphicsExtractor guiGraphics, int mouseX, int mouseY, float partialTick) {
         int i = this.getRowLeft();
         int j = this.getRowWidth();
-        int k = this.itemHeight - paddingTop;
+        int k = entryHeight() - paddingTop;
         int l = this.getItemCount();
 
         for(int m = 0; m < l; ++m) {
             int n = this.getRowTop(m);
             int o = this.getRowBottom(m);
-            if (o >= this.y0 && n <= this.y1) {
-                this.renderItem(guiGraphics, mouseX, mouseY, partialTick, m, i, n, j, k);
+            if (o >= listTop() && n <= listBottom()) {
+                this.renderRow(guiGraphics, mouseX, mouseY, partialTick, m, i, n, j, k);
             }
         }
 
@@ -233,7 +234,7 @@ public class CheckboxList extends AbstractSelectionList<CheckboxList.CheckboxEnt
     }
 
     public void scrollTo(@NotNull CheckboxEntry entry) {
-        int maxScroll = this.getMaxScroll();
+        int maxScroll = this.maxScroll();
         if (maxScroll <= 0) {
             return;
         }
@@ -241,19 +242,19 @@ public class CheckboxList extends AbstractSelectionList<CheckboxList.CheckboxEnt
         if (idx < 0) {
             return;
         }
-        double desired = (double)idx * this.itemHeight;
+        double desired = (double)idx * entryHeight();
         this.setScrollAmount(desired);
     }
 
     @Override
     protected @Nullable CheckboxEntry getEntryAtPosition(double mouseX, double mouseY) {
         int i = this.getRowWidth() / 2;
-        int j = this.x0 + this.width / 2;
+        int j = listLeft() + this.width / 2;
         int k = j - i;
         int l = j + i;
-        int m = Mth.floor(mouseY - (double)this.y0) - this.headerHeight + (int)this.getScrollAmount() - 4;
-        int n = m / this.itemHeight;
-        var entry = mouseX < (double)this.getScrollbarPosition()
+        int m = Mth.floor(mouseY - (double)listTop()) - listHeaderHeight() + (int)this.scrollValue() - 4;
+        int n = m / entryHeight();
+        var entry = mouseX < (double)this.scrollbarX()
                 && mouseX >= (double)k
                 && mouseX <= (double)l && n >= 0
                 && m >= 0
@@ -270,8 +271,7 @@ public class CheckboxList extends AbstractSelectionList<CheckboxList.CheckboxEnt
     }
 
     @Override
-    protected void updateScrollingState(double mouseX, double mouseY, int button) {
-        super.updateScrollingState(mouseX, mouseY, button);
+    protected void onScrollStateUpdated(double mouseX, double mouseY, int button) {
         if(scrolling){
             lastDragCall = System.currentTimeMillis();
         }
@@ -287,7 +287,7 @@ public class CheckboxList extends AbstractSelectionList<CheckboxList.CheckboxEnt
 
     @Override
     public boolean mouseReleased(double mouseX, double mouseY, int button) {
-        if (button == 0) {
+        if (button == InputConstants.MOUSE_BUTTON_LEFT) {
             this.scrolling = false;
         }
         return super.mouseReleased(mouseX, mouseY, button);
@@ -295,8 +295,8 @@ public class CheckboxList extends AbstractSelectionList<CheckboxList.CheckboxEnt
 
 
     @Override
-    protected int getScrollbarPosition() {
-        return this.x0 + this.width
+    protected int scrollbarX() {
+        return listLeft() + this.width
                 - (scrollBarWidth + 2)  - paddingCheckbox;
     }
 
@@ -309,21 +309,21 @@ public class CheckboxList extends AbstractSelectionList<CheckboxList.CheckboxEnt
 
     @Override
     public int getRowLeft() {
-        return this.x0 + paddingLeft;
+        return listLeft() + paddingLeft;
     }
 
     @Override
-    protected int getRowTop(int index) {
-        return this.y0 + paddingTop - (int)this.getScrollAmount() + index * this.itemHeight + this.headerHeight;
+    public int getRowTop(int index) {
+        return listTop() + paddingTop - (int)this.scrollValue() + index * entryHeight() + listHeaderHeight();
     }
 
     @Override
-    protected int getRowBottom(int index) {
+    public int getRowBottom(int index) {
         return super.getRowBottom(index) - paddingTop;
     }
 
     @Override
-    public void updateNarration(@NotNull NarrationElementOutput narrationElementOutput) {
+    protected void updateListNarration(@NotNull NarrationElementOutput narrationElementOutput) {
 
     }
 
@@ -365,7 +365,7 @@ public class CheckboxList extends AbstractSelectionList<CheckboxList.CheckboxEnt
 
 
         @Override
-        public void render(@NotNull GuiGraphics guiGraphics,
+        protected void renderRow(@NotNull GuiGraphicsExtractor guiGraphics,
                            int index,
                            int top, int left,
                            int rowWidth, int rowHeight,
@@ -454,7 +454,7 @@ public class CheckboxList extends AbstractSelectionList<CheckboxList.CheckboxEnt
             int rowTop = CheckboxList.this.getRowTop(idx);
             int rowWidth = CheckboxList.this.getRowWidth();
 
-            int cbSize = itemHeight - paddingTop;
+            int cbSize = entryHeight() - paddingTop;
 
             int iconX;
             if (widgetInfo.isCheckboxLeftSided()) {
@@ -471,7 +471,7 @@ public class CheckboxList extends AbstractSelectionList<CheckboxList.CheckboxEnt
 
         @Override
         public boolean mouseClicked(double mouseX, double mouseY, int button) {
-            if(button == 0){
+            if(button == InputConstants.MOUSE_BUTTON_LEFT){
                 CheckboxList.this.playSelectedSound(Minecraft.getInstance().getSoundManager());
                 return true;
             }

@@ -3,8 +3,12 @@ package org.vmstudio.visor.api;
 
 import com.mojang.blaze3d.pipeline.RenderTarget;
 import com.mojang.blaze3d.vertex.PoseStack;
+//? if >=1.21.5 {
+import com.mojang.renderpearl.api.device.GpuDevice;
+import com.mojang.renderpearl.api.textures.GpuTexture;
+//?}
 import net.minecraft.network.FriendlyByteBuf;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 import org.vmstudio.visor.api.client.render.RenderPipelineCallback;
 import org.vmstudio.visor.api.client.render.RenderPipelineStage;
 import net.minecraft.core.BlockPos;
@@ -77,7 +81,7 @@ public interface ModLoader {
      * @return packet
      */
     @NotNull
-    Packet<?> createPacketToServer(@NotNull ResourceLocation channelId,
+    Packet<?> createPacketToServer(@NotNull Identifier channelId,
                                    @NotNull VisorPayloadToServer payload);
 
     /**
@@ -87,7 +91,7 @@ public interface ModLoader {
      * @return packet
      */
     @NotNull
-    Packet<?> createPacketToClient(@NotNull ResourceLocation channelId,
+    Packet<?> createPacketToClient(@NotNull Identifier channelId,
                                    @NotNull VisorPayloadToClient payload);
 
 
@@ -127,8 +131,24 @@ public interface ModLoader {
     void addToRenderPipeline(@NotNull RenderPipelineStage stage,
                              @NotNull RenderPipelineCallback callback);
 
+    //? if >=26.3 {
+    @ApiStatus.Internal
+    void fireLevelStage(@NotNull RenderPipelineStage stage);
+    //?}
+
     @ApiStatus.Internal
     boolean enableRenderTargetStencil(@NotNull RenderTarget renderTarget);
+    //? if >=1.21.5 {
+    // NeoForge's blaze3d validation layer (on by default outside production) wraps the device and its textures
+    @ApiStatus.Internal
+    default GpuDevice unwrapDevice(@NotNull GpuDevice device) {
+        return device;
+    }
+    @ApiStatus.Internal
+    default GpuTexture unwrapTexture(@NotNull GpuTexture texture) {
+        return texture;
+    }
+    //?}
     @ApiStatus.Internal
     double getItemEntityReach(double baseRange, ItemStack itemStack, EquipmentSlot slot);
     @ApiStatus.Internal
@@ -153,7 +173,8 @@ public interface ModLoader {
 
     enum LoaderType{
         FABRIC,
-        FORGE
+        FORGE,
+        NEOFORGE
     }
 
     @ApiStatus.Internal
@@ -174,6 +195,14 @@ public interface ModLoader {
                 Class<?> clazz = Class.forName("org.vmstudio.visor.loader.forge.ForgeModLoader");
                 api = (ModLoader) clazz.getConstructor().newInstance();
             } catch (Exception ignored) {
+            }
+            //NEOFORGE
+            if(api == null){
+                try {
+                    Class<?> clazz = Class.forName("org.vmstudio.visor.loader.neoforge.NeoForgeModLoader");
+                    api = (ModLoader) clazz.getConstructor().newInstance();
+                } catch (Exception ignored) {
+                }
             }
             //FABRIC
             if(api == null){

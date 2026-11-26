@@ -1,8 +1,15 @@
 package org.vmstudio.visor.core.client.player;
 
+import org.vmstudio.visor.api.compatibility.mcversion.McEntity;
+import org.vmstudio.visor.api.compatibility.mcversion.McPlayerInput;
+import org.vmstudio.visor.api.compatibility.mcversion.McVersionUtils;
+import org.vmstudio.visor.api.compatibility.mcversion.McVersionClientUtils;
+
 import lombok.Getter;
 
 import lombok.Setter;
+import me.phoenixra.atumvr.api.input.haptics.AtumVRBodyHaptics;
+import me.phoenixra.atumvr.api.input.treadmill.AtumVRTreadmillView;
 import org.jetbrains.annotations.Nullable;
 import org.vmstudio.visor.api.VisorAPI;
 import org.vmstudio.visor.api.client.events.BodyChangedVREvent;
@@ -14,19 +21,20 @@ import org.vmstudio.visor.api.client.tasks.VisorTask;
 import org.vmstudio.visor.api.common.HandType;
 import org.vmstudio.visor.api.common.network.toserver.vrstate.ActiveHandPayloadToServer;
 import org.vmstudio.visor.api.common.player.VRPose;
+import org.vmstudio.visor.api.common.player.VRPlayer;
 import org.vmstudio.visor.api.common.utils.VRMathUtils;
 import org.vmstudio.visor.api.server.VRServerSettings;
 import org.vmstudio.visor.core.client.VisorState;
 import org.vmstudio.visor.core.client.player.pose.LocalPlayerPose;
+import org.vmstudio.visor.core.client.player.height.PlayerHeightTracker;
 import org.vmstudio.visor.core.client.tasks.types.TaskHotBar;
 import org.vmstudio.visor.core.client.tasks.types.movement.TaskRoomClimb;
 import org.vmstudio.visor.core.client.tasks.types.movement.TaskRoomCrawl;
 import org.vmstudio.visor.core.common.CommonUtils;
 import org.vmstudio.visor.core.common.player.PoseHistoryImpl;
 import org.vmstudio.visor.extensions.client.entity.LocalPlayerExtension;
-import org.vmstudio.visor.extensions.client.render.GameRendererExtension;
 import org.vmstudio.visor.core.client.render.VRRenderState;
-import org.vmstudio.visor.core.client.settings.VRClientSettings;
+import org.vmstudio.visor.api.client.settings.VRClientSettings;
 import org.vmstudio.visor.core.client.tasks.types.movement.vehicle.TaskVehicle;
 import org.vmstudio.visor.core.client.network.ClientNetworking;
 import net.minecraft.client.player.LocalPlayer;
@@ -79,6 +87,9 @@ public class VRLocalPlayerImpl implements VRLocalPlayer {
     @Getter @Setter
     private boolean overlayFocused;
 
+    @Getter
+    private final PlayerHeightTracker heightTracker = new PlayerHeightTracker();
+
     public VRLocalPlayerImpl() {
         this.roomPose = new LocalPlayerPose(this, PlayerPoseType.ROOM);
         this.prevPose = new LocalPlayerPose(this, PlayerPoseType.PREV_TICK);
@@ -110,13 +121,15 @@ public class VRLocalPlayerImpl implements VRLocalPlayer {
 
     @Override
     public void setActiveHand(@NotNull HandType activeHand) {
-        if (!VRServerSettings.isTwoHandedVR()) {
-            activeHand = HandType.MAIN;
-        }
         if(this.activeHand == activeHand){
             return;
         }
         this.activeHand = activeHand;
+
+        if (VisorState.get().isActive() && MC.level != null) {
+            // refresh aim data, so the switching active hand can be instant
+            VRAimPicker.applyHandPick(activeHand);
+        }
 
         ClientNetworking.sendVRPacket(
                 new ActiveHandPayloadToServer(this.activeHand == HandType.MAIN)
@@ -137,9 +150,10 @@ public class VRLocalPlayerImpl implements VRLocalPlayer {
         );
 
         //WORLD SCALE
+        heightTracker.tick();
         float preWorldScale = VRRenderState.getSceneType().isMainMenu()
                 ? 1.0f
-                : VRClientSettings.getWorldScale();
+                : VRClientSettings.getWorldScale() * VRClientSettings.getHeightFactor();
 
         this.pose.updateTracking(
                 pose.getOrigin(),
@@ -186,7 +200,7 @@ public class VRLocalPlayerImpl implements VRLocalPlayer {
         );
 
         this.updatePlayerLook(MC.player, PlayerPoseType.TICK);
-        this.overlayFocused = MC.screen != null || ClientContext.cursorHandler.isAnyHandFocused(false);
+        this.overlayFocused = McVersionClientUtils.screen() != null || ClientContext.cursorHandler.isAnyHandFocused(false);
 
         ClientNetworking.sendVRPlayerState();
 
@@ -249,8 +263,10 @@ public class VRLocalPlayerImpl implements VRLocalPlayer {
 
     private void movePlayerInRoom(LocalPlayer player){
         if(player == null
+                || VisorState.get().isNotFocused()
                 || player.isShiftKeyDown()
                 || player.isSleeping()
+                || player.isPassenger()
                 || !player.isAlive()){
             return;
         }
@@ -285,10 +301,13 @@ public class VRLocalPlayerImpl implements VRLocalPlayer {
         // If there is no collision at the destination,
         // update the player's position
         if (MC.level.noCollision(player, collisionBox)) {
+            if (!isRoomPathClear(player, collisionBox)) {
+                return;
+            }
             //avoid using player.setPos() since it is overridden by Visor
             player.setPosRaw(newPos.x, newPos.y, newPos.z);
             player.setBoundingBox(collisionBox);
-            player.fallDistance = 0.0F;
+            player.resetFallDistance();
             return;
         }
 
@@ -302,9 +321,10 @@ public class VRLocalPlayerImpl implements VRLocalPlayer {
                 && ((LocalPlayerExtension) player).visor$getJumpFactor() == 1.0F
                 && !smartBlocked);
 
-        if (canAutoClimb && player.fallDistance == 0.0F) {
+        if (canAutoClimb && McEntity.fallDistance(player) == 0.0) {
             // Reduce the collision box width for climbing checks.
-            float climbShrink = player.getDimensions(player.getPose()).width * 0.45F;
+            float climbShrink = McVersionUtils.dimensionsWidth(
+                    player.getDimensions(player.getPose())) * 0.45F;
             double climbShrinkHalfWidth = playerHalfWidth - climbShrink;
 
             AABB collisionBoxClimb = new AABB(
@@ -344,7 +364,7 @@ public class VRLocalPlayerImpl implements VRLocalPlayer {
                             false
                     );
 
-                    player.fallDistance = 0.0F;
+                    player.resetFallDistance();
                     ((LocalPlayerExtension) MC.player).visor$stepSound(
                             BlockPos.containing(player.position()),
                             player.position()
@@ -355,6 +375,24 @@ public class VRLocalPlayerImpl implements VRLocalPlayer {
 
             }
         }
+    }
+
+    private boolean isRoomPathClear(LocalPlayer player, AABB destination) {
+        AABB current = player.getBoundingBox();
+        double dx = destination.minX - current.minX;
+        double dz = destination.minZ - current.minZ;
+        int stops = (int) (Math.sqrt(dx * dx + dz * dz) / (player.getBbWidth() / 2.0D));
+
+        if (stops == 0 || !MC.level.noCollision(player, current)) {
+            return true;
+        }
+        for (int i = 1; i <= stops; i++) {
+            double progress = i / (stops + 1.0D);
+            if (!MC.level.noCollision(player, current.move(dx * progress, 0.0D, dz * progress))) {
+                return false;
+            }
+        }
+        return true;
     }
 
     public void updatePlayerLook(LocalPlayer player, PlayerPoseType stage) {
@@ -378,10 +416,10 @@ public class VRLocalPlayerImpl implements VRLocalPlayer {
             return;
         }
         if (player.isBlocking()) {
-            HandType activeHand = ClientContext.localPlayer.getActiveHand() == HandType.MAIN
+            HandType blockHand = player.getUsedItemHand() == InteractionHand.MAIN_HAND
                     ? HandType.MAIN
                     : HandType.OFFHAND;
-            visor$applyPoseLook(player, data.getHand(activeHand));
+            visor$applyPoseLook(player, data.getHand(blockHand));
             return;
         }
 
@@ -395,7 +433,7 @@ public class VRLocalPlayerImpl implements VRLocalPlayer {
         }
 
         if (player.isSprinting()
-                && (player.input.jumping || MC.options.keyJump.isDown())
+                && (McPlayerInput.isJumping(player) || MC.options.keyJump.isDown())
                 || player.isFallFlying()
                 || player.isSwimming()
                 && player.zza > 0.0F) {
@@ -405,12 +443,12 @@ public class VRLocalPlayerImpl implements VRLocalPlayer {
             return;
         }
 
-        Vec3 crossVec = ((GameRendererExtension) MC.gameRenderer).visor$getCrossVec();
+        Vec3 aimHitPos = VRAimPicker.getAimHitPos();
         if (!VRClientSettings.isCompatibleLookDirection()
-                && crossVec != null) {
+                && aimHitPos != null) {
             visor$applyVectorLook(
                     player,
-                    crossVec.subtract(player.getEyePosition(1.0F)).normalize()
+                    aimHitPos.subtract(player.getEyePosition(1.0F)).normalize()
             );
             return;
         }
@@ -430,7 +468,7 @@ public class VRLocalPlayerImpl implements VRLocalPlayer {
         // we sub it to compensate initial room position of pose data
         float x = (float) (cameraEntity.getX() - headPivot.x());
         float z = (float) (cameraEntity.getZ() - headPivot.z());
-        float y = (float) (cameraEntity.getY());
+        float y = (float) (cameraEntity.getY() + getCameraOffsetWorld());
         if (cameraEntity instanceof LocalPlayerExtension p) {
             y += (float) p.visor$getRoomYOffset();
         }
@@ -494,7 +532,30 @@ public class VRLocalPlayerImpl implements VRLocalPlayer {
 
     @Override
     public RawTrackers getRawTrackers() {
-        return ClientContext.localPlayer.getRawTrackers();
+        return ClientContext.rawPoseHandler.getTrackersData();
+    }
+
+    @Override
+    public RawHands getRawHands() {
+        return ClientContext.rawPoseHandler.getHandsData();
+    }
+
+    @Override
+    public @NotNull AtumVRTreadmillView getTreadmill() {
+        if (VisorState.get().isNotActive()) {
+            return AtumVRTreadmillView.EMPTY;
+        }
+        return ClientContext.visor.getVrProvider()
+                .getInputHandler().getVRTreadmill();
+    }
+
+    @Override
+    public @NotNull AtumVRBodyHaptics getBodyHaptics() {
+        if (VisorState.get().isNotActive()) {
+            return AtumVRBodyHaptics.EMPTY;
+        }
+        return ClientContext.visor.getVrProvider()
+                .getInputHandler().getVRBodyHaptics();
     }
 
     @Override
@@ -539,7 +600,27 @@ public class VRLocalPlayerImpl implements VRLocalPlayer {
         return VRClientSettings.getFullHeight();
     }
 
+    @Override
+    public float getModelScale(@NotNull PlayerPoseType poseType) {
+        float scale = getFullHeightScale();
+        if (VisorState.get().isActive()) {
+            scale *= getPoseData(poseType).getWorldScale();
+        }
+        return scale;
+    }
 
+    public float getModelHeight() {
+        return VRPlayer.DEFAULT_FULL_HEIGHT * getModelScale(PlayerPoseType.TICK);
+    }
+
+    @Override
+    public float getFullHeightScale() {
+        return VRClientSettings.getModelHeightRatio();
+    }
+
+    public float getCameraOffsetWorld() {
+        return VRClientSettings.getCameraOffset() * pose.getWorldScale();
+    }
 
     @Override
     public boolean isLeftHanded() {

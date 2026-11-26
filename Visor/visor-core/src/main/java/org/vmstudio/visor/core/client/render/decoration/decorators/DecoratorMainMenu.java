@@ -1,5 +1,6 @@
 package org.vmstudio.visor.core.client.render.decoration.decorators;
 
+import org.vmstudio.visor.api.compatibility.mcversion.render.McRenderUtils;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.math.Axis;
 import org.vmstudio.visor.api.VisorAPI;
@@ -15,8 +16,8 @@ import org.vmstudio.visor.core.client.render.decoration.decorators.mainmenu.VRMe
 import org.vmstudio.visor.core.client.render.decoration.decorators.mainmenu.VRMenuSkyCanvas;
 import org.vmstudio.visor.core.client.render.helpers.RenderPoseHelper;
 import org.vmstudio.visor.core.client.render.VRRenderState;
-import org.vmstudio.visor.core.client.settings.VRClientSettings;
-import org.vmstudio.visor.core.client.settings.options.enums.MainMenuSceneMode;
+import org.vmstudio.visor.api.client.settings.VRClientSettings;
+import org.vmstudio.visor.api.client.settings.enums.MainMenuSceneMode;
 import org.jetbrains.annotations.NotNull;
 
 import org.vmstudio.visor.core.client.ClientContext;
@@ -63,7 +64,7 @@ public class DecoratorMainMenu extends VRDecorator {
                 origin.z() - eye.z()
         );
 
-        poseStack.mulPose(
+        McRenderUtils.rotate(poseStack,
                 Axis.YN.rotation(
                         -renderPose.getRotationY()
                 )

@@ -1,26 +1,31 @@
 package org.vmstudio.visor.core.client.provider;
 
+import org.vmstudio.visor.api.compatibility.mcversion.render.McGlState;
+import org.vmstudio.visor.api.compatibility.mcversion.render.McProjection;
+import org.vmstudio.visor.api.compatibility.mcversion.McVersionClientUtils;
+import org.vmstudio.visor.api.compatibility.mcversion.render.McRenderUtils;
+import org.vmstudio.visor.api.compatibility.mcversion.render.McModelViewStack;
+import org.vmstudio.visor.api.compatibility.mcversion.render.McRenderTarget;
+
 import com.mojang.blaze3d.pipeline.RenderTarget;
-import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.PoseStack;
 import lombok.Getter;
 import me.phoenixra.atumvr.api.enums.EyeType;
 import me.phoenixra.atumvr.api.rendering.AtumVRRenderContext;
 import me.phoenixra.atumvr.api.rendering.AtumVRScene;
 import me.phoenixra.atumvr.api.utils.GLUtils;
-import me.phoenixra.atumvr.core.session.platform.XRPlatform;
 import org.vmstudio.visor.api.client.render.VRRenderPass;
 import org.vmstudio.visor.api.client.render.VRRenderer;
 import org.vmstudio.visor.core.client.render.context.RenderContext;
 import org.vmstudio.visor.core.client.ClientContext;
 import org.vmstudio.visor.core.client.render.VRShaders;
 import org.vmstudio.visor.core.client.render.VRRenderState;
-import org.vmstudio.visor.compatibility.ShadersHelper;
-import org.vmstudio.visor.core.client.render.helpers.MirrorHelper;
-import org.vmstudio.visor.core.client.settings.VRClientSettings;
-import org.vmstudio.visor.core.client.utils.ClientUtils;
-import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.GuiGraphics;
+import org.vmstudio.visor.compatibility.ShaderCompatHelper;
+//? if >=26.1 {
+import org.vmstudio.visor.core.client.render.camera.VRCameraEntitySwap;
+import org.vmstudio.visor.core.client.render.camera.VRCameraOverlaps;
+//?}
+import org.vmstudio.visor.core.client.render.helpers.RenderStateHelper;
 import org.jetbrains.annotations.NotNull;
 
 import static org.vmstudio.visor.core.client.VisorClientImpl.*;
@@ -30,6 +35,7 @@ public class VisorScene implements AtumVRScene {
 
     @Getter
     private VRRenderer renderer;
+
 
     public VisorScene(VRRenderer renderer) {
         this.renderer = renderer;
@@ -46,12 +52,8 @@ public class VisorScene implements AtumVRScene {
         var renderContext = (RenderContext) context;
         var profiler =  renderContext.profiler();
 
-        // pop pose pushed in onGameRenderStart method
-        RenderSystem.getModelViewStack().popPose();
-
-
-        RenderSystem.depthMask(true);
-        RenderSystem.applyModelViewMatrix();
+        McGlState.depthMask(true);
+        McModelViewStack.apply();
 
 
         profiler.push("prepare VROverlays and cursor");
@@ -61,16 +63,13 @@ public class VisorScene implements AtumVRScene {
         profiler.pop();
 
         profiler.push("VROverlay texturing");
-        GuiGraphics guiGraphics = new GuiGraphics(MC, MC.renderBuffers().bufferSource());
         ClientContext.overlayManager.renderOverlayTextures(
-                MC.getProfiler(),
-                guiGraphics,
+                McVersionClientUtils.profiler(),
                 renderContext.partialTicks()
         );
         profiler.pop();
-        GLUtils.checkGLError("post VR Overlays texturing");
 
-        ShadersHelper.bridge().beginFrame(
+        ShaderCompatHelper.bridge().beginFrame(
                 renderContext.partialTicks(),
                 renderContext.nanoTime()
         );
@@ -84,47 +83,31 @@ public class VisorScene implements AtumVRScene {
             );
             GLUtils.checkGLError("post VR render pass: " + renderPass.name());
 
-
-            if (ClientContext.renderer.isAskedForScreenShot()) {
-                takeScreenshot(renderPass);
-            }
+            McRenderUtils.endRenderPass();
             profiler.pop();
         }
 
 
-        ShadersHelper.bridge().endFrame();
-
-        profiler.push("VR mirror");
-        VRRenderState.startVRMirrorPhase();
-        MC.mainRenderTarget.bindWrite(true);
-        if (!XRPlatform.isAndroid()) {
-            MirrorHelper.drawMirror();
-        }
-        profiler.pop();
-        GLUtils.checkGLError("post mirror");
+        ShaderCompatHelper.bridge().endFrame();
 
 
     }
 
-    private void takeScreenshot(VRRenderPass currentStage) {
+    private void renderOverlaysAfterPostProcessing(RenderContext context) {
+        McModelViewStack.push();
+        McModelViewStack.identity();
+        McModelViewStack.apply();
 
-        boolean flag;
-        if (currentStage == VRRenderPass.CENTER) {
-            flag = true;
-        } else {
-            flag = VRClientSettings.getMirrorEye() == EyeType.LEFT ?
-                    currentStage == VRRenderPass.EYE_LEFT
-                    : currentStage == VRRenderPass.EYE_RIGHT;
+        McProjection.State projection = McProjection.save();
+        try{
+            ClientContext.decorationRenderer.renderAfterPostProcessing(new PoseStack(), context.partialTicks());
+        } finally {
+            McProjection.restore(projection);
+            McModelViewStack.pop();
+            McModelViewStack.apply();
         }
 
-        if (flag) {
-            RenderTarget rendertarget = MC.mainRenderTarget;
-
-            MC.mainRenderTarget.unbindWrite();
-            ClientUtils.takeScreenshot(rendertarget);
-            MC.getWindow().updateDisplay();
-            ClientContext.renderer.setAskedForScreenShot(false);
-        }
+        GLUtils.checkGLError("post VROverlays skipping post processing");
     }
 
     @Override
@@ -137,63 +120,86 @@ public class VisorScene implements AtumVRScene {
     ) {
         VRRenderState.startVRWorldPhase(renderPass);
 
-        if (MC.mainRenderTarget == null) {
+        if (McRenderTarget.mainTarget() == null) {
             LOGGER.warn("Visor: no render target for pass {}; requesting renderer reinit.", renderPass);
             VRRenderState.startVanillaPhase();
             ClientContext.renderer.prepareReinit("Missing target for pass " + renderPass);
             return;
         }
 
-        MC.mainRenderTarget.bindWrite(true);
-        RenderSystem.clearColor(0.0F, 0.0F, 0.0F, 1.0F);
-        RenderSystem.clear(16384, Minecraft.ON_OSX);
-        RenderSystem.enableDepthTest();
+        McRenderTarget.bindWrite(McRenderTarget.mainTarget());
+        McGlState.clearColor(0.0F, 0.0F, 0.0F, 1.0F);
+        McGlState.clear(16384);
+        McGlState.enableDepthTest();
 
-        ShadersHelper.bridge().beginEye(renderPass.getEyeOrLeft());
+        ShaderCompatHelper.bridge().beginEye(renderPass.getEyeOrLeft());
 
-        if (ShadersHelper.isShaderActive()) {
-            RenderSystem.setShaderTexture(0, 0);
-            RenderSystem.setShaderTexture(1, 0);
-            RenderSystem.setShaderTexture(2, 0);
+        if (ShaderCompatHelper.isShaderActive()) {
+            McGlState.clearShaderTexture(0);
+            McGlState.clearShaderTexture(1);
+            McGlState.clearShaderTexture(2);
         }
 
-        MC.gameRenderer.render(
+        //? if >=26.1 {
+        boolean levelPass = context.renderLevel() && MC.level != null && MC.player != null
+                && MC.isGameLoadFinished();
+        if (levelPass) {
+            VRCameraEntitySwap.cacheCameraEntity(MC.getCameraEntity());
+            VRCameraEntitySwap.setupCameraEntityAsVRCamera();
+            VRCameraOverlaps.updateCameraOverlaps();
+        }
+        try {
+            McRenderUtils.renderGame(
+                    MC.gameRenderer,
+                    context.partialTicks(),
+                    context.nanoTime(),
+                    context.renderLevel()
+            );
+        } finally {
+            if (levelPass) {
+                VRCameraEntitySwap.restoreCameraEntity(MC.getCameraEntity());
+            }
+        }
+        //?} else {
+        /*McRenderUtils.renderGame(
+                MC.gameRenderer,
                 context.partialTicks(),
                 context.nanoTime(),
                 context.renderLevel()
         );
+        *///?}
+        //render game is outside of VR control. many mods might interfere
+        //so, we drain GL errors instead of crash
+        RenderStateHelper.drainExternalGLErrors("VR level render");
 
-        if (ShadersHelper.isShaderActive()) {
-            MC.mainRenderTarget.bindWrite(true);
-            PoseStack modelView = RenderSystem.getModelViewStack();
-            modelView.pushPose();
-            modelView.setIdentity();
-            RenderSystem.applyModelViewMatrix();
+        if (ShaderCompatHelper.isShaderActive()) {
+            McRenderTarget.bindWrite(McRenderTarget.mainTarget());
+            McModelViewStack.push();
+            McModelViewStack.identity();
+            McModelViewStack.apply();
             ClientContext.decorationRenderer.renderShaderUi(new PoseStack(), context.partialTicks());
-            modelView.popPose();
-            RenderSystem.applyModelViewMatrix();
+            McModelViewStack.pop();
+            McModelViewStack.apply();
         }
 
         if (renderPass.isEye()) {
-
-            if (renderPass == VRRenderPass.EYE_LEFT) {
-                ClientContext.renderer.getTextureLeftEye()
-                        .getRenderTarget().bindWrite(true);
-            } else {
-                ClientContext.renderer.getTextureRightEye()
-                        .getRenderTarget().bindWrite(true);
-            }
+            RenderTarget eyeTarget = renderPass == VRRenderPass.EYE_LEFT
+                    ? ClientContext.renderer.getTextureLeftEye().getRenderTarget()
+                    : ClientContext.renderer.getTextureRightEye().getRenderTarget();
 
             VRShaders.getPostProcess().finishEye(
                     renderPass == VRRenderPass.EYE_LEFT
                             ? EyeType.LEFT : EyeType.RIGHT,
-                    MC.mainRenderTarget,
+                    McRenderTarget.mainTarget(),
+                    eyeTarget,
+                    ClientContext.renderer.mainTarget.getScalingTarget(),
                     context.partialTicks()
             );
-
         }
 
-        ShadersHelper.bridge().endEye();
+        renderOverlaysAfterPostProcessing(context);
+
+        ShaderCompatHelper.bridge().endEye();
     }
 
 

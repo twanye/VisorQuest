@@ -1,5 +1,7 @@
 package org.vmstudio.visor.core.client.network;
 
+import org.vmstudio.visor.api.compatibility.mcversion.McVersionClientUtils;
+import org.vmstudio.visor.api.compatibility.mcversion.gui.McGuiUtils;
 import lombok.Getter;
 import org.jetbrains.annotations.NotNull;
 import org.vmstudio.visor.api.ModLoader;
@@ -16,7 +18,7 @@ import org.vmstudio.visor.api.common.network.toserver.vrstate.*;
 import org.vmstudio.visor.api.common.player.VRPlayer;
 import org.vmstudio.visor.api.server.VRServerSettings;
 import org.vmstudio.visor.compatibility.RecorderModHelper;
-import org.vmstudio.visor.core.client.VisorState;
+import org.vmstudio.visor.compatibility.replaymod.ReplayCompatHelper;
 import org.vmstudio.visor.core.client.player.VRClientPlayers;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientPacketListener;
@@ -29,7 +31,6 @@ import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.phys.Vec3;
 
 import org.vmstudio.visor.core.client.ClientContext;
-import org.vmstudio.visor.core.client.settings.VRClientSettings;
 import org.vmstudio.visor.core.common.addon.CoreAddonClient;
 import org.vmstudio.visor.core.server.network.ServerPacketHandler;
 
@@ -55,7 +56,6 @@ public class ClientNetworking {
     private static boolean overlayFocusedLastSent = false;
 
 
-    private static boolean handshakeReceived = false;
     private static boolean recording;
 
     public static void createClientChannel(@NotNull CoreAddonClient coreAddon){
@@ -82,10 +82,10 @@ public class ClientNetworking {
 
     public static void sendVRPacket(VisorPayloadToServer payload) {
         if (MC.getConnection() == null) return;
-        if (!serverSupportsVisor) return;
         if(RecorderModHelper.isLoaded()){
             RecorderModHelper.storeVisorPacketLocal(CHANNEL, payload);
         }
+        if (!serverSupportsVisor) return;
         MC.getConnection().send(createVRPacket(payload));
     }
 
@@ -108,9 +108,7 @@ public class ClientNetworking {
         float yaw = (float) Math.toDegrees(Mth.atan2(-view.x, view.z));
 
         ((LocalPlayer) player).connection.send(
-                new ServerboundMovePlayerPacket.Rot(
-                        yaw, pitch, player.onGround()
-                )
+                McVersionClientUtils.rotationPacket(player, yaw, pitch)
         );
     }
 
@@ -120,18 +118,12 @@ public class ClientNetworking {
             return;
         }
 
-        if(!serverSupportsVisor){
+        if(!serverSupportsVisor && !RecorderModHelper.isRecording()){
             return;
         }
 
-        if(handshakeReceived){
-            if(VRClientSettings.tryCalibrateHeight()){
-                handshakeReceived = false;
-            }
-        }
-
         var localPlayer = ClientContext.localPlayer;
-        float height = localPlayer.getFullHeight();
+        float height = Math.round(localPlayer.getModelHeight() * 100f) / 100f;
         if (height != heightLastSent) {
             sendVRPacket(
                     new FullHeightPayloadToServer(
@@ -205,22 +197,6 @@ public class ClientNetworking {
             overlayFocusedLastSent = overlayFocused;
         }
 
-        boolean modRecording = RecorderModHelper.isRecording();
-        if(modRecording && !recording){
-            recording = true;
-            RecorderModHelper.sendInitPacketsLocal(
-                    CHANNEL,
-                    localPlayer
-            );
-            RecorderModHelper.sendInitPacketsRemote(
-                    CHANNEL,
-                    VRClientPlayers.getRemotePlayers()
-            );
-        }else if(!modRecording){
-            recording = false;
-        }
-
-
         PoseDataBuffer vrPlayerState = PoseDataBuffer.create(
                 localPlayer
         );
@@ -231,26 +207,38 @@ public class ClientNetworking {
     }
 
 
+    // replaymod only, flashback gets the same data through writeCustomSnapshot
+    public static void tickRecording() {
+        boolean modRecording = ReplayCompatHelper.isRecording();
+        if(modRecording && !recording){
+            recording = true;
+            RecorderModHelper.collectInitPayloads(payload -> RecorderModHelper.storePacket(CHANNEL, payload));
+        }else if(!modRecording){
+            recording = false;
+        }
+    }
+
     protected static void receivedHandShake(){
         if (!Minecraft.getInstance().isLocalServer()) {
-            MC.gui.getChat().addMessage(
+            McGuiUtils.addChatMessage(McVersionClientUtils.chat(),
                     Component.translatable(
                             "visor.messages.server_supports"
                     )
             );
         }
-        if (VisorState.get().isActive()
-                && ClientContext.localPlayer.getFullHeight() == -1.0F) {
-            MC.gui.getChat().addMessage(
-                    Component.translatable("visor.messages.calibrate_height")
-            );
-        }
         serverSupportsVisor = true;
-        handshakeReceived = true;
+        // recording could've updated these already, the server still has to get them
+        resetLastSent();
     }
 
     public static void dispose(){
         serverSupportsVisor = false;
+        resetLastSent();
+        recording = false;
+        VRClientPlayers.dispose();
+    }
+
+    private static void resetLastSent(){
         heightLastSent = VRPlayer.DEFAULT_FULL_HEIGHT;
         gunAngleLastSent = VRPlayer.DEFAULT_GUN_ANGLE;
         worldScaleLastSent = 1.0F;
@@ -259,9 +247,6 @@ public class ClientNetworking {
         activeHandLastSent = HandType.MAIN;
         rotationYLastSent = 0;
         overlayFocusedLastSent = false;
-        recording = false;
-        handshakeReceived = false;
-        VRClientPlayers.dispose();
     }
 
 }

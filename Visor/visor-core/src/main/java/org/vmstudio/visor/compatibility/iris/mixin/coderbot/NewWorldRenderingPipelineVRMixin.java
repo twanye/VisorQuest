@@ -17,18 +17,17 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.ModifyArg;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.vmstudio.visor.api.client.render.VRRenderPass;
-import org.vmstudio.visor.compatibility.ClassDependentMixin;
+import org.vmstudio.visor.compatibility.MixinGate;
 import org.vmstudio.visor.compatibility.iris.IrisCompatHelper;
 import org.vmstudio.visor.compatibility.iris.extensions.IrisPipelineExtension;
 import org.vmstudio.visor.core.client.VisorClientImpl;
 
 import java.lang.reflect.Field;
-import java.util.Objects;
 import java.util.Set;
 import java.util.function.Supplier;
 
 @Pseudo
-@ClassDependentMixin("net.coderbot.iris.pipeline.newshader.NewWorldRenderingPipeline")
+@MixinGate(classes = "net.coderbot.iris.pipeline.newshader.NewWorldRenderingPipeline")
 @Mixin(value = NewWorldRenderingPipeline.class, remap = false)
 public class NewWorldRenderingPipelineVRMixin implements IrisPipelineExtension {
     @Shadow
@@ -96,15 +95,17 @@ public class NewWorldRenderingPipelineVRMixin implements IrisPipelineExtension {
         }
     }
 
+
     @ModifyArg(method = {"addGbufferOrShadowSamplers*", "lambda$new$*"},
             at = @At(value = "INVOKE",
                     target = "Ljava/util/Objects;requireNonNull(Ljava/lang/Object;)Ljava/lang/Object;"),
             expect = 0, require = 0)
     private Object visor$rerouteSharedShadowTargets(Object obj) {
-        if (visor$shadowSharer && (obj == null || obj instanceof ShadowRenderTargets)) {
-            return Objects.requireNonNullElse(IrisCompatHelper.sharedShadowTargets, obj);
+        if (!visor$shadowSharer || (obj != null && !(obj instanceof ShadowRenderTargets))) {
+            return obj;
         }
-        return obj;
+        Object shared = IrisCompatHelper.sharedShadowTargets;
+        return shared != null ? shared : obj;
     }
 
     @ModifyReturnValue(method = "shouldDisableVanillaEntityShadows", at = @At("RETURN"))

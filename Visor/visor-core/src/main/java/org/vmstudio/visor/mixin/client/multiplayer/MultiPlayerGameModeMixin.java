@@ -1,19 +1,22 @@
 package org.vmstudio.visor.mixin.client.multiplayer;
 
+import com.llamalad7.mixinextras.injector.ModifyExpressionValue;
+import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
+import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.multiplayer.prediction.PredictiveAction;
 import net.minecraft.network.protocol.Packet;
 import net.minecraft.network.protocol.game.ServerGamePacketListener;
+import org.objectweb.asm.Opcodes;
 import org.spongepowered.asm.mixin.Shadow;
-import org.spongepowered.asm.mixin.injection.Redirect;
 import org.vmstudio.visor.api.client.player.pose.VRPlayerPoseClient;
 import org.vmstudio.visor.api.client.player.pose.PlayerPoseType;
 import org.vmstudio.visor.api.common.HandType;
 import org.vmstudio.visor.api.server.VRServerSettings;
-import org.vmstudio.visor.compatibility.ItemClassifier;
+import org.vmstudio.visor.api.compatibility.ItemClassifier;
 import org.vmstudio.visor.core.client.ClientContext;
 import org.vmstudio.visor.core.client.VisorState;
-import org.vmstudio.visor.extensions.client.render.GameRendererExtension;
+import org.vmstudio.visor.core.client.player.VRAimPicker;
 import org.vmstudio.visor.core.client.network.ClientNetworking;
 import net.minecraft.client.multiplayer.MultiPlayerGameMode;
 import net.minecraft.client.player.LocalPlayer;
@@ -46,22 +49,17 @@ public abstract class MultiPlayerGameModeMixin {
     private ItemStack destroyingItem;
 
 
-
-    @Shadow
-    public abstract void startPrediction(ClientLevel arg, PredictiveAction arg2);
-
-
     /* ***************************************** *\
   //--------TWO HANDED VR (OFFHAND SUPPORT)--------\\
     \* ***************************************** */
 
-    @Redirect(method = "sameDestroyTarget", at = @At(value = "INVOKE",
+    @WrapOperation(method = "sameDestroyTarget", at = @At(value = "INVOKE",
             target = "Lnet/minecraft/client/player/LocalPlayer;getMainHandItem()Lnet/minecraft/world/item/ItemStack;"))
-    public ItemStack visor$sameDestroyTarget(LocalPlayer player) {
-        return visor$getUsedItem(player);
+    public ItemStack visor$sameDestroyTarget(LocalPlayer player, Operation<ItemStack> original) {
+        return visor$isOffhandUsed() ? player.getOffhandItem() : original.call(player);
     }
 
-    @Redirect(
+    @WrapOperation(
             method = "startDestroyBlock", // Target the synthetic lambda method
             at = @At(
                     value = "INVOKE",
@@ -70,23 +68,24 @@ public abstract class MultiPlayerGameModeMixin {
     )
     public void visor$startDestroyBlock(MultiPlayerGameMode instance,
                                         ClientLevel clientLevel,
-                                        PredictiveAction predictiveAction
+                                        PredictiveAction predictiveAction,
+                                        Operation<Void> original
     ) {
         if(VisorState.get().isNotActive()) {
-            instance.startPrediction(clientLevel,predictiveAction);
+            original.call(instance, clientLevel, predictiveAction);
             return;
         }
-        startPrediction(clientLevel, (i) -> {
+        original.call(instance, clientLevel, (PredictiveAction) (i) -> {
             Packet<ServerGamePacketListener> packet = predictiveAction.predict(i);
             destroyingItem = visor$getUsedItem(MC.player);
             return packet;
         });
     }
 
-    @Redirect(method = "destroyBlock", at = @At(value = "INVOKE",
+    @WrapOperation(method = "destroyBlock", at = @At(value = "INVOKE",
             target = "Lnet/minecraft/client/player/LocalPlayer;getMainHandItem()Lnet/minecraft/world/item/ItemStack;"))
-    public ItemStack visor$destroyBlock(LocalPlayer player) {
-        return visor$getUsedItem(player);
+    public ItemStack visor$destroyBlock(LocalPlayer player, Operation<ItemStack> original) {
+        return visor$isOffhandUsed() ? player.getOffhandItem() : original.call(player);
     }
 
 
@@ -96,17 +95,15 @@ public abstract class MultiPlayerGameModeMixin {
     \* ************************** */
     @Inject(at = @At("HEAD"), method = "useItem")
     public void visor$ensureUseDirection1(Player player,
-                                            InteractionHand interactionHand,
-                                            CallbackInfoReturnable<InteractionResult> cir
+                                          InteractionHand hand,
+                                          CallbackInfoReturnable<InteractionResult> cir
     ) {
         if (VisorState.get().isActive()) {
             ClientNetworking.sendLookPacket(player,
                     visor$getRightClickLook(
                                     player,
-                                    interactionHand == InteractionHand
-                                            .MAIN_HAND ?
-                                            HandType.MAIN
-                                            : HandType.OFFHAND
+                                    hand == InteractionHand.MAIN_HAND ?
+                                            HandType.MAIN : HandType.OFFHAND
                             )
             );
         }
@@ -128,19 +125,32 @@ public abstract class MultiPlayerGameModeMixin {
     }
 
     @Inject(at = @At("HEAD"), method = "useItemOn")
-    public void visor$ensureUseDirection3(LocalPlayer localPlayer, InteractionHand interactionHand,
-                                   BlockHitResult blockHitResult, CallbackInfoReturnable<InteractionResult> cir
+    public void visor$ensureUseDirection3(LocalPlayer player, InteractionHand interactionHand,
+                                          BlockHitResult result, CallbackInfoReturnable<InteractionResult> cir
     ) {
         if (VisorState.get().isActive()) {
             ClientNetworking.sendLookPacket(
-                    localPlayer,
-                    blockHitResult.getLocation()
+                    player,
+                    result.getLocation()
                             .subtract(
-                                    localPlayer.getEyePosition(1.0F)
+                                    player.getEyePosition(1.0F)
                             ).normalize()
             );
         }
     }
+
+
+    //? if >=1.20.5 {
+    @ModifyExpressionValue(method = "performUseItemOn", at = @At(value = "FIELD",
+            target = "Lnet/minecraft/world/InteractionHand;MAIN_HAND:Lnet/minecraft/world/InteractionHand;",
+            opcode = Opcodes.GETSTATIC))
+    private InteractionHand visor$vrBlockUseHand(InteractionHand original) {
+        if (VisorState.get().isNotActive() || !VRServerSettings.isTwoHandedVR()) {
+            return original;
+        }
+        return ClientContext.localPlayer.getActiveHand().asInteractionHand();
+    }
+    //?}
 
 
     /* ************************* *\
@@ -149,12 +159,14 @@ public abstract class MultiPlayerGameModeMixin {
 
     @Unique
     public ItemStack visor$getUsedItem(Player player) {
-        if(VisorState.get().isNotActive()) return player.getMainHandItem();
-        if (VRServerSettings.isTwoHandedVR()
-                && ClientContext.localPlayer.getActiveHand() == HandType.OFFHAND) {
-            return player.getOffhandItem();
-        }
-        return player.getMainHandItem();
+        return visor$isOffhandUsed() ? player.getOffhandItem() : player.getMainHandItem();
+    }
+
+    @Unique
+    private boolean visor$isOffhandUsed() {
+        return VisorState.get().isActive()
+                && VRServerSettings.isTwoHandedVR()
+                && ClientContext.localPlayer.getActiveHand() == HandType.OFFHAND;
     }
 
     @Unique
@@ -164,11 +176,10 @@ public abstract class MultiPlayerGameModeMixin {
         Vec3 lookDirection = player.getLookAngle();
 
         // If a custom cross vector is available, adjust the look direction accordingly.
-        GameRendererExtension renderer = (GameRendererExtension) MC.gameRenderer;
-        Vec3 crossVector = renderer.visor$getCrossVec();
-        if (crossVector != null) {
+        Vec3 aimHitPos = VRAimPicker.getAimHitPos();
+        if (aimHitPos != null) {
             lookDirection = player.getEyePosition(1.0F)
-                    .subtract(crossVector)
+                    .subtract(aimHitPos)
                     .normalize()
                     .reverse();
         }
@@ -184,9 +195,10 @@ public abstract class MultiPlayerGameModeMixin {
         boolean isBow = heldItem.getItem() instanceof BowItem;
         boolean isChargedCrossbow = heldItem.getItem() instanceof CrossbowItem
                 && CrossbowItem.isCharged(heldItem);
+        boolean isShield = ItemClassifier.SHIELD.is(heldItem);
 
         // If the held item affects aiming, update the look direction.
-        if (isThrowable || isPotion || isBow || isChargedCrossbow) {
+        if (isThrowable || isPotion || isBow || isChargedCrossbow || isShield) {
             VRPlayerPoseClient preTickPose = ClientContext
                     .localPlayer.getPoseData(PlayerPoseType.TICK);
             lookDirection = new Vec3(

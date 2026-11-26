@@ -1,12 +1,13 @@
 package org.vmstudio.visor.core.client.gui.screens;
 
+import org.vmstudio.visor.api.compatibility.mcversion.McVersionClientUtils;
 import org.vmstudio.visor.core.client.exceptions.VisorException;
 import org.vmstudio.visor.api.common.utils.LoggerUtils;
-import net.minecraft.Util;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.Button;
-import net.minecraft.client.gui.screens.Screen;
+import org.vmstudio.visor.api.compatibility.mcversion.gui.McScreen;
+import org.vmstudio.visor.api.compatibility.mcversion.gui.McGuiUtils;
 import net.minecraft.client.gui.screens.TitleScreen;
 import net.minecraft.network.chat.Component;
 import net.minecraft.util.FormattedCharSequence;
@@ -14,7 +15,7 @@ import org.jetbrains.annotations.NotNull;
 
 import java.util.List;
 
-public class VRErrorReportScreen extends Screen {
+public class VRErrorReportScreen extends McScreen {
     private final String discordUrl;
     private final String logsFolderUrl;
 
@@ -53,7 +54,7 @@ public class VRErrorReportScreen extends Screen {
         // Back
         addRenderableWidget(Button.builder(
                         Component.translatable("gui.back"),
-                        b -> Minecraft.getInstance().setScreen(new TitleScreen()))
+                        b -> McVersionClientUtils.setScreen(new TitleScreen()))
                 .size(btnW, btnH)
                 .pos(startX, bottomY)
                 .build()
@@ -62,7 +63,7 @@ public class VRErrorReportScreen extends Screen {
         // Open Logs folder
         addRenderableWidget(Button.builder(
                         Component.translatable("visor.button.open_logs"),
-                        b -> Util.getPlatform().openUri(logsFolderUrl))
+                        b -> McVersionClientUtils.openUri(logsFolderUrl))
                 .size(btnW, btnH)
                 .pos(startX + (btnW + gap), bottomY)
                 .build()
@@ -71,7 +72,7 @@ public class VRErrorReportScreen extends Screen {
         // Discord
         addRenderableWidget(Button.builder(
                         Component.translatable("visor.button.discord"),
-                        b -> Util.getPlatform().openUri(discordUrl))
+                        b -> McVersionClientUtils.openUri(discordUrl))
                 .size(btnW, btnH)
                 .pos(startX + (btnW + gap) * 2, bottomY)
                 .build()
@@ -79,20 +80,18 @@ public class VRErrorReportScreen extends Screen {
     }
 
     @Override
-    public void render(@NotNull GuiGraphics gfx, int mx, int my, float pt) {
-        this.renderBackground(gfx);
-
-        gfx.drawCenteredString(this.font, this.title, this.width/2, 15, 0xFF5555);
+    protected void renderContents(@NotNull GuiGraphicsExtractor gfx, int mx, int my, float pt) {
+        McGuiUtils.drawCenteredString(gfx, this.font, this.title, this.width/2, 15, 0xFF5555);
 
         int y = 40;
         for (var line : summaryLines) {
             int lineWidth = this.font.width(line);
             int x = (this.width - lineWidth) / 2;
-            gfx.drawString(this.font, line, x, y, 0xFFFFFF, false);
+            McGuiUtils.drawString(gfx, this.font, line, x, y, 0xFFFFFF, false);
             y += this.font.lineHeight;
         }
 
-        super.render(gfx, mx, my, pt);
+        super.renderContents(gfx, mx, my, pt);
     }
 
     public static void catchError(Throwable t, boolean log) {
@@ -102,8 +101,8 @@ public class VRErrorReportScreen extends Screen {
                 ? vx.getTitle()
                 : Component.translatable("visor.messages.error.generic");
 
-        Minecraft.getInstance().tell(() ->
-                Minecraft.getInstance().setScreen(new VRErrorReportScreen(title, t))
+        McVersionClientUtils.schedule(() ->
+                McVersionClientUtils.setScreen(new VRErrorReportScreen(title, t))
         );
     }
 }

@@ -1,13 +1,16 @@
 package org.vmstudio.visor.api.client.gui.widgets.lists;
 
 
-import com.mojang.blaze3d.systems.RenderSystem;
+import com.mojang.blaze3d.platform.InputConstants;
+import org.vmstudio.visor.api.compatibility.mcversion.gui.McGuiEventListener;
+import org.vmstudio.visor.api.compatibility.mcversion.gui.McGuiUtils;
+import org.vmstudio.visor.api.compatibility.mcversion.gui.McRenderable;
 import lombok.Getter;
 import org.vmstudio.visor.api.VisorAPI;
 import org.vmstudio.visor.api.client.gui.GuiTexture;
 import org.vmstudio.visor.api.client.gui.widgets.info.WidgetInfoWidgetSetList;
 import org.vmstudio.visor.api.client.gui.widgets.sets.DynamicWidgetSet;
-import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.Renderable;
 import net.minecraft.client.gui.components.events.GuiEventListener;
 import net.minecraft.client.gui.narration.NarratableEntry;
@@ -17,6 +20,7 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.*;
+import org.vmstudio.visor.api.compatibility.mcversion.render.McGlState;
 
 
 /**
@@ -25,7 +29,7 @@ import java.util.*;
  * Entries are not selectable — each entry manages its own widgets
  * and interaction.
  */
-public class WidgetSetList implements GuiEventListener, Renderable, NarratableEntry {
+public class WidgetSetList implements McGuiEventListener, McRenderable, NarratableEntry {
 
     @Getter
     private final WidgetInfoWidgetSetList widgetInfo;
@@ -93,7 +97,7 @@ public class WidgetSetList implements GuiEventListener, Renderable, NarratableEn
 
 
     @Override
-    public void render(@NotNull GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTick) {
+    public void render(@NotNull GuiGraphicsExtractor guiGraphics, int mouseX, int mouseY, float partialTick) {
         if (VisorAPI.clientState().stateMode().isActive()
                 && scrolling
                 && lastDragCall + 200 < System.currentTimeMillis()) {
@@ -114,7 +118,7 @@ public class WidgetSetList implements GuiEventListener, Renderable, NarratableEn
             entry.onPreRender(guiGraphics, mouseX, mouseY, partialTick);
 
             for (var widget : entry.getWidgets()) {
-                widget.render(guiGraphics, mouseX, mouseY, partialTick);
+                McGuiUtils.render(widget, guiGraphics, mouseX, mouseY, partialTick);
             }
         }
 
@@ -127,10 +131,10 @@ public class WidgetSetList implements GuiEventListener, Renderable, NarratableEn
         }
 
         renderScrollbar(guiGraphics);
-        RenderSystem.disableBlend();
+        McGlState.disableBlend();
     }
 
-    private void renderScrollbar(@NotNull GuiGraphics guiGraphics) {
+    private void renderScrollbar(@NotNull GuiGraphicsExtractor guiGraphics) {
         int maxScroll = getMaxScroll();
         if (maxScroll <= 0) return;
 
@@ -285,7 +289,7 @@ public class WidgetSetList implements GuiEventListener, Renderable, NarratableEn
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
         if (!isMouseOver(mouseX, mouseY)) return false;
 
-        if (button == 0 && getMaxScroll() > 0) {
+        if (button == InputConstants.MOUSE_BUTTON_LEFT && getMaxScroll() > 0) {
             int sbX = getScrollbarX();
             if (mouseX >= sbX && mouseX < sbX + scrollBarWidth + 2) {
                 scrolling = true;
@@ -299,7 +303,7 @@ public class WidgetSetList implements GuiEventListener, Renderable, NarratableEn
                 continue;
             }
             for (var widget : entry.getWidgets()) {
-                if (widget.mouseClicked(mouseX, mouseY, button)) {
+                if (McGuiUtils.mouseClicked(widget, mouseX, mouseY, button)) {
                     return true;
                 }
             }
@@ -310,7 +314,7 @@ public class WidgetSetList implements GuiEventListener, Renderable, NarratableEn
 
     @Override
     public boolean mouseReleased(double mouseX, double mouseY, int button) {
-        if (button == 0) {
+        if (button == InputConstants.MOUSE_BUTTON_LEFT) {
             scrolling = false;
         }
         for (Entry entry : entries) {
@@ -318,7 +322,7 @@ public class WidgetSetList implements GuiEventListener, Renderable, NarratableEn
                 continue;
             }
             for (var widget : entry.getWidgets()) {
-                widget.mouseReleased(mouseX, mouseY, button);
+                McGuiUtils.mouseReleased(widget, mouseX, mouseY, button);
             }
         }
         return false;
@@ -327,7 +331,7 @@ public class WidgetSetList implements GuiEventListener, Renderable, NarratableEn
     @Override
     public boolean mouseDragged(double mouseX, double mouseY,
                                 int button, double dragX, double dragY) {
-        if (scrolling && button == 0) {
+        if (scrolling && button == InputConstants.MOUSE_BUTTON_LEFT) {
             lastDragCall = System.currentTimeMillis();
             int maxScroll = getMaxScroll();
             if (maxScroll <= 0) return true;

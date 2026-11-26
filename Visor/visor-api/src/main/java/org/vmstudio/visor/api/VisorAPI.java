@@ -12,12 +12,13 @@ import org.vmstudio.visor.api.common.addon.component.ComponentIds;
 import org.vmstudio.visor.api.common.eventbus.VREventBus;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.vmstudio.visor.api.common.player.VRPlayer;
 import org.vmstudio.visor.api.common.player.VisorPlayer;
+import org.vmstudio.visor.api.compatibility.mcversion.McVersionUtils;
 import org.vmstudio.visor.api.server.player.VRServerPlayer;
 import org.vmstudio.visor.api.server.player.VisorServerPlayer;
 
@@ -28,7 +29,6 @@ import java.util.function.Function;
 
 /**
  * Central access point for all Visor API functionality.
- *
  */
 public interface VisorAPI {
 
@@ -43,7 +43,7 @@ public interface VisorAPI {
 
     /**Visor mod icon**/
     GuiTexture NOD_ICON = new GuiTexture(
-            new ResourceLocation(VisorAPI.MOD_ID, "icon.png")
+            McVersionUtils.newResourceLoc(VisorAPI.MOD_ID, "icon.png")
     );
 
     /**

@@ -1,5 +1,6 @@
 package org.vmstudio.visor.core.client.gui.screens.settings.categories.controls;
 
+import org.vmstudio.visor.api.compatibility.mcversion.gui.McGuiUtils;
 import me.phoenixra.atumvr.api.misc.color.AtumColor;
 import org.vmstudio.visor.api.client.gui.helpers.GuiHelper;
 import org.vmstudio.visor.api.client.gui.overlays.options.OptionTextures;
@@ -12,9 +13,9 @@ import org.vmstudio.visor.api.common.addon.component.ComponentIds;
 import org.vmstudio.visor.core.client.gui.overlays.builtin.settings.VROverlaySettings;
 import org.vmstudio.visor.core.client.gui.screens.settings.OptionWidgetEntry;
 import org.vmstudio.visor.core.client.gui.screens.settings.VROptionsSet;
-import org.vmstudio.visor.core.client.settings.VRClientSettings;
+import org.vmstudio.visor.api.client.settings.VRClientSettings;
 import org.vmstudio.visor.core.client.settings.VROptionWidgetType;
-import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.Renderable;
 import net.minecraft.client.gui.components.Tooltip;
 import net.minecraft.client.gui.components.events.GuiEventListener;
@@ -29,9 +30,11 @@ import static org.vmstudio.visor.core.client.VisorClientImpl.MC;
 
 public class VRSettingsCreateKeyAction extends VROptionsSet {
 
+    private static final String ID_PREFIX = "key";
+    private static final int OFFSET_Y = 15;
+
     private VRSettingsActions parent;
 
-    private EditBoxImaged actionIdEdit;
     private EditBoxImaged actionNameEdit;
     private EditBoxImaged actionKeyEdit;
 
@@ -64,21 +67,9 @@ public class VRSettingsCreateKeyAction extends VROptionsSet {
             & NarratableEntry> List<T> initWidgets() {
         var scaleHelper = getScreen().getScaleHelper();
 
-        int offsetY = 15;
-        actionIdEdit = new EditBoxImaged(
-                new WidgetInfoEditBox()
-                        .pos(scaleHelper.scaledX(56+36), scaleHelper.scaledY(46+offsetY))
-                        .size(scaleHelper.scaledSize(72), scaleHelper.scaledSize(10))
-                        .setTexture(OptionTextures.GRAY_TEXTURE)
-                        .setTextMaxLength(20)
-                        .setTextColor(VROverlaySettings.TEXT_COLOR)
-                        .setTooltip(Tooltip.create(Component.translatable("visor.action.options.add_key_action.type_id.tooltip")))
-                        .setHint(Component.translatable("visor.action.options.add_key_action.type_id"))
-        );
-
         actionNameEdit = new EditBoxImaged(
                 new WidgetInfoEditBox()
-                        .pos(scaleHelper.scaledX(56+36), scaleHelper.scaledY(60+offsetY))
+                        .pos(scaleHelper.scaledX(56+36), scaleHelper.scaledY(46+OFFSET_Y))
                         .size(scaleHelper.scaledSize(72), scaleHelper.scaledSize(10))
                         .setTexture(OptionTextures.GRAY_TEXTURE)
                         .setTextMaxLength(30)
@@ -89,7 +80,7 @@ public class VRSettingsCreateKeyAction extends VROptionsSet {
 
         actionKeyEdit = new EditBoxImaged(
                 new WidgetInfoEditBox()
-                        .pos(scaleHelper.scaledX(56+36+18), scaleHelper.scaledY(74+offsetY))
+                        .pos(scaleHelper.scaledX(56+36+18), scaleHelper.scaledY(67+OFFSET_Y))
                         .size(scaleHelper.scaledSize(36), scaleHelper.scaledSize(10))
                         .setTexture(OptionTextures.GRAY_TEXTURE)
                         .setTextMaxLength(1)
@@ -121,7 +112,6 @@ public class VRSettingsCreateKeyAction extends VROptionsSet {
             & Renderable
             & NarratableEntry> List<T> getWidgets() {
         List<T> list = new ArrayList<>();
-        list.add((T) actionIdEdit);
         list.add((T) actionNameEdit);
         list.add((T) actionKeyEdit);
         list.add((T) createButton);
@@ -131,15 +121,14 @@ public class VRSettingsCreateKeyAction extends VROptionsSet {
     @Override
     public void onTick() {
         super.onTick();
-        actionIdEdit.tick();
-        actionNameEdit.tick();
-        actionKeyEdit.tick();
+        McGuiUtils.tickEditBox(actionNameEdit);
+        McGuiUtils.tickEditBox(actionKeyEdit);
 
         checkCreateRequirements();
     }
 
     @Override
-    public void onPostRender(@NotNull GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTicks) {
+    public void onPostRender(@NotNull GuiGraphicsExtractor guiGraphics, int mouseX, int mouseY, float partialTicks) {
         var scaleHelper = getScreen().getScaleHelper();
 
         GuiHelper.renderScalableText(
@@ -151,6 +140,17 @@ public class VRSettingsCreateKeyAction extends VROptionsSet {
                 scaleHelper.scaledSize(136), scaleHelper.scaledSize(7),
                 true
         );
+        if(createButton.active) {
+            GuiHelper.renderScalableText(
+                    guiGraphics,
+                    MC.font,
+                    Component.translatable("visor.action.options.add_key_action.id", generateId()).getString(),
+                    VROverlaySettings.ID_TEXT_COLOR.asInt(),
+                    scaleHelper.scaledX(56 + 36 + 4), scaleHelper.scaledY(58 + OFFSET_Y),
+                    scaleHelper.scaledSize(64), scaleHelper.scaledSize(5),
+                    false
+            );
+        }
     }
 
     private void createPressed(){
@@ -159,7 +159,7 @@ public class VRSettingsCreateKeyAction extends VROptionsSet {
             return;
         }
 
-        var id = actionIdEdit.getValue();
+        var id = generateId();
         var name = actionNameEdit.getValue();
         var key = actionKeyEdit.getValue();
         var keyAction = new VRActionKey(
@@ -178,28 +178,20 @@ public class VRSettingsCreateKeyAction extends VROptionsSet {
     }
 
 
+    private String generateId(){
+        return ComponentIds.generateId(
+                actionNameEdit.getValue(),
+                ID_PREFIX,
+                id -> parent.getActionSet().getAction(id) != null
+        );
+    }
+
     private void checkCreateRequirements(){
-        String id = actionIdEdit.getValue();
         String name = actionNameEdit.getValue();
         String key = actionKeyEdit.getValue();
 
         canCreate = true;
 
-        if(id.length() < 3){
-            canCreate = false;
-            if(!id.isEmpty()) {
-                actionIdEdit.setTextColor(AtumColor.RED.asInt());
-            }
-        }
-        else if(parent.getActionSet().getAction(id) != null){
-            canCreate = false;
-            actionIdEdit.setTextColor(AtumColor.RED.asInt());
-        }else if(!ComponentIds.isValid(id)){
-            canCreate = false;
-            actionIdEdit.setTextColor(AtumColor.RED.asInt());
-        }else{
-            actionIdEdit.setTextColor(AtumColor.WHITE.asInt());
-        }
         if(name.length() < 3){
             canCreate = false;
             if(!name.isEmpty()) {

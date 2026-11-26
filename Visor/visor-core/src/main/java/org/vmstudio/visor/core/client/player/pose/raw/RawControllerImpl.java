@@ -7,6 +7,8 @@ import org.vmstudio.visor.api.common.utils.Vector3fHistory;
 import org.jetbrains.annotations.NotNull;
 import org.joml.Matrix4f;
 import org.joml.Matrix4fc;
+import org.joml.Quaternionf;
+import org.joml.Quaternionfc;
 import org.joml.Vector3f;
 
 @Data
@@ -18,6 +20,8 @@ public class RawControllerImpl implements RawController {
 
     private Matrix4f gripPose = new Matrix4f();
     private Matrix4f gripRotation = new Matrix4f();
+
+    private final Quaternionf aimToGripRotation = new Quaternionf();
 
     private Vector3fHistory positionHistory = new Vector3fHistory(301);
     private Vector3fHistory forwardHistory = new Vector3fHistory(301);
@@ -61,17 +65,25 @@ public class RawControllerImpl implements RawController {
     }
 
 
+    public @NotNull Quaternionfc getAimToGripRotation() {
+        return aimToGripRotation;
+    }
+    public @NotNull Quaternionf getAimToGripRotationMutable() {
+        return aimToGripRotation;
+    }
+
+
      @NotNull
      public Vector3f getAimVector() {
         return getAimRotation().transformDirection(
-                VRMathUtils.BACK_VECTOR, new Vector3f()
+                VRMathUtils.FORWARD_VECTOR, new Vector3f()
         );
     }
 
      @NotNull
      public Vector3f getGripVector() {
         return getGripRotation().transformDirection(
-                VRMathUtils.BACK_VECTOR, new Vector3f()
+                VRMathUtils.FORWARD_VECTOR, new Vector3f()
         );
     }
 

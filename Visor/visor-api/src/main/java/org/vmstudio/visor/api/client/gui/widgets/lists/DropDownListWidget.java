@@ -1,11 +1,13 @@
 package org.vmstudio.visor.api.client.gui.widgets.lists;
 
+import org.vmstudio.visor.api.compatibility.mcversion.gui.McGuiEventListener;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.experimental.Accessors;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.GuiGraphics;
-import net.minecraft.client.gui.components.AbstractButton;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
+import org.vmstudio.visor.api.compatibility.mcversion.gui.McButton;
+import org.vmstudio.visor.api.compatibility.mcversion.gui.McGuiUtils;
 import net.minecraft.client.gui.components.Tooltip;
 import net.minecraft.client.gui.narration.NarratedElementType;
 import net.minecraft.client.gui.narration.NarrationElementOutput;
@@ -17,7 +19,7 @@ import java.util.List;
 import java.util.function.Consumer;
 
 
-public class DropDownListWidget extends AbstractButton {
+public class DropDownListWidget extends McButton implements McGuiEventListener {
 
     private final int ITEM_HEIGHT = 12;
 
@@ -83,9 +85,9 @@ public class DropDownListWidget extends AbstractButton {
      * Renders the base button and, if expanded, the dropdown list along with the interactive scrollbar.
      */
     @Override
-    protected void renderWidget(GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTick) {
+    protected void renderContents(GuiGraphicsExtractor guiGraphics, int mouseX, int mouseY, float partialTick) {
         // Render the base button (background, border, and label)
-        super.renderWidget(guiGraphics, mouseX, mouseY, partialTick);
+        renderDefaultButton(guiGraphics, mouseX, mouseY, partialTick);
 
         if (expanded) {
             int dropdownX = this.getX();
@@ -156,7 +158,7 @@ public class DropDownListWidget extends AbstractButton {
                         }
 
                         guiGraphics.enableScissor(dropdownX + padding, itemY, dropdownX + padding + availableWidth, itemY + ITEM_HEIGHT);
-                        guiGraphics.drawString(font, text, dropdownX + padding - offset, itemY + (ITEM_HEIGHT - 8) / 2, textColor);
+                        McGuiUtils.drawString(guiGraphics, font, text, dropdownX + padding - offset, itemY + (ITEM_HEIGHT - 8) / 2, textColor);
                         guiGraphics.disableScissor();
                     } else {
                         if(elementScrollingText == i) {
@@ -164,11 +166,11 @@ public class DropDownListWidget extends AbstractButton {
                         }
                         // Not hovered: draw truncated text
                         String truncatedText = font.plainSubstrByWidth(text, availableWidth);
-                        guiGraphics.drawString(font, truncatedText, dropdownX + padding, itemY + (ITEM_HEIGHT - 8) / 2, textColor);
+                        McGuiUtils.drawString(guiGraphics, font, truncatedText, dropdownX + padding, itemY + (ITEM_HEIGHT - 8) / 2, textColor);
                     }
                 } else {
                     // If text fits, center it.
-                    guiGraphics.drawCenteredString(font, text, dropdownX + this.getWidth() / 2, itemY + (ITEM_HEIGHT - 8) / 2, textColor);
+                    McGuiUtils.drawCenteredString(guiGraphics, font, text, dropdownX + this.getWidth() / 2, itemY + (ITEM_HEIGHT - 8) / 2, textColor);
                 }
             }
 
@@ -257,7 +259,7 @@ public class DropDownListWidget extends AbstractButton {
             }
         }
 
-        boolean buttonClicked = this.clicked(mouseX, mouseY);
+        boolean buttonClicked = this.isMouseOver(mouseX, mouseY);
         boolean dropdownClicked = expanded &&
                 (mouseX >= dropdownX && mouseX <= dropdownX + dropdownWidth &&
                         mouseY >= dropdownY && mouseY <= dropdownY + dropdownHeight);

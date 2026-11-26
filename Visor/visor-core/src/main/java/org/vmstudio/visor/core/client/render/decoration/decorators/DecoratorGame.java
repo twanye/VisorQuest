@@ -6,10 +6,12 @@ import org.vmstudio.visor.api.common.addon.component.ComponentPriority;
 import org.vmstudio.visor.api.common.addon.VisorAddon;
 import org.vmstudio.visor.core.client.render.decoration.effects.hand.HandEffectTeleport;
 import org.vmstudio.visor.core.client.render.decoration.effects.GameEffectOnFire;
+import org.vmstudio.visor.core.client.render.decoration.effects.GameEffectPumpkin;
 import org.vmstudio.visor.core.client.render.decoration.effects.GameEffectShadow;
 import org.vmstudio.visor.core.client.render.decoration.effects.GameEffectTrackerDebug;
 import org.vmstudio.visor.core.client.render.decoration.effects.GameEffectVanilla;
 import org.vmstudio.visor.core.client.render.decoration.effects.hand.HandEffectCrosshair;
+import org.vmstudio.visor.api.compatibility.mcversion.McVersionClientUtils;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.List;
@@ -37,13 +39,14 @@ public class DecoratorGame extends VRDecorator {
 
     @Override
     public boolean canActivate() {
-        return MC.player != null && MC.level != null && MC.screen == null;
+        return MC.player != null && MC.level != null && McVersionClientUtils.screen() == null;
     }
 
     @Override
     public List<String> gameEffects() {
         return List.of(
                 GameEffectOnFire.ID,
+                GameEffectPumpkin.ID,
                 GameEffectShadow.ID,
                 GameEffectVanilla.ID,
                 GameEffectTrackerDebug.ID

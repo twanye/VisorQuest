@@ -1,6 +1,11 @@
 package org.vmstudio.visor.mixin.client.gui;
 
 import com.mojang.blaze3d.platform.InputConstants;
+//? if >=1.21.9 {
+import com.mojang.blaze3d.platform.Window;
+import net.minecraft.client.input.KeyEvent;
+import net.minecraft.client.input.MouseButtonEvent;
+//?}
 import org.vmstudio.visor.api.client.gui.overlays.framework.VROverlayScreen;
 import org.vmstudio.visor.api.client.input.InputHelper;
 import org.vmstudio.visor.core.client.ClientContext;
@@ -13,7 +18,9 @@ import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.inventory.AbstractSignEditScreen;
 import net.minecraft.client.gui.screens.inventory.BookEditScreen;
 import net.minecraft.network.chat.Component;
-import org.lwjgl.glfw.GLFW;
+//? if <26.3 {
+/*import org.lwjgl.glfw.GLFW;
+*///?}
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
@@ -21,6 +28,7 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
+import org.vmstudio.visor.api.compatibility.mcversion.McVersionClientUtils;
 
 
 
@@ -33,13 +41,30 @@ public class KeyboardMixins {
         /**
          * For keyboard to work
          */
-        @Inject(at = @At("HEAD"), method = "isKeyDown", cancellable = true)
+        //? if >=26.3 {
+        @Inject(at = @At("RETURN"), method = "isKeyDown", cancellable = true)
+        private static void visor$keyDown(int i, CallbackInfoReturnable<Boolean> cir) {
+            if (!cir.getReturnValueZ() && VisorState.get().isActive() && InputHelper.isVirtualKeyDown(i)) {
+                cir.setReturnValue(true);
+            }
+        }
+        //?} elif >=1.21.9 {
+        /*@Inject(at = @At("HEAD"), method = "isKeyDown", cancellable = true)
+        private static void visor$keyDown(Window window, int i, CallbackInfoReturnable<Boolean> cir) {
+            cir.setReturnValue(
+                    GLFW.glfwGetKey(window.handle(), i) == 1
+                            || (VisorState.get().isActive() && InputHelper.isKeyDown(i))
+            );
+        }
+        *///?} else {
+        /*@Inject(at = @At("HEAD"), method = "isKeyDown", cancellable = true)
         private static void visor$keyDown(long l, int i, CallbackInfoReturnable<Boolean> cir) {
             cir.setReturnValue(
                     GLFW.glfwGetKey(l, i) == 1
                             || (VisorState.get().isActive() && InputHelper.isKeyDown(i))
             );
         }
+        *///?}
     }
 
     @Mixin(KeyboardHandler.class)
@@ -54,20 +79,27 @@ public class KeyboardMixins {
          * if keyboard is attached to an overlay
          */
         @Inject(at = @At(value = "INVOKE", target = "Lnet/minecraft/client/Minecraft;getWindow()Lcom/mojang/blaze3d/platform/Window;", ordinal = 0, shift = At.Shift.AFTER), method = "keyPress", cancellable = true)
-        public void visor$onKeyPressed(long windowHandle, int keyCode, int keyScan, int actionType, int keyModifiers, CallbackInfo ci) {
+        //? if >=1.21.9 {
+        public void visor$onKeyPressed(long windowHandle, int actionType, KeyEvent event, CallbackInfo ci) {
+            int keyCode = event.key();
+            int keyScan = event.keycode();
+            int keyModifiers = event.modifiers();
+        //?} else {
+        /*public void visor$onKeyPressed(long windowHandle, int keyCode, int keyScan, int actionType, int keyModifiers, CallbackInfo ci) {
+        *///?}
             if (VisorState.get().isNotActive()) {
                 return;
             }
             var keyboardAccessor = ClientContext.overlayManager.getKeyboardAccessor();
             Screen attachedScreen = keyboardAccessor
                     .getAttachedTo();
-            if(attachedScreen instanceof VROverlayScreen
+            if(attachedScreen instanceof VROverlayScreen overlay
                     && keyboardAccessor.isVisible()){
                 if (actionType == 0) {
-                    attachedScreen.keyReleased(keyCode, keyScan, keyModifiers);
+                    overlay.keyReleased(keyCode, keyScan, keyModifiers);
                 } else {
                     //pressed - 1, heldDown - 2
-                    attachedScreen.keyPressed(keyCode, keyScan, keyModifiers);
+                    overlay.keyPressed(keyCode, keyScan, keyModifiers);
                 }
                 ci.cancel();
             }
@@ -89,8 +121,13 @@ public class KeyboardMixins {
             super(i, j, k, l, component);
         }
 
+        //? if >=1.21.9 {
         @Inject(at = @At(value = "HEAD"), method = "onClick")
+        public void visor$openKeyboard(MouseButtonEvent event, boolean doubleClick, CallbackInfo ci) {
+        //?} else {
+        /*@Inject(at = @At(value = "HEAD"), method = "onClick")
         public void visor$openKeyboard(double d, double e, CallbackInfo ci) {
+        *///?}
             if (VisorState.get().isNotActive()) {
                 return;
             }
@@ -104,7 +141,7 @@ public class KeyboardMixins {
                     overlayBase = overlayScreen;
                 }
                 Screen screenFocused = overlayBase == null
-                        ? Minecraft.getInstance().screen
+                        ? McVersionClientUtils.screen()
                         : overlayBase;
                 keyboardAccessor.showKeyboard(
                         screenFocused

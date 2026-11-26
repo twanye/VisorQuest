@@ -14,15 +14,15 @@ import org.vmstudio.visor.api.common.utils.VRMathUtils;
 import org.vmstudio.visor.core.client.ClientContext;
 import org.vmstudio.visor.core.client.player.pose.LocalPlayerPose;
 
-import org.vmstudio.visor.core.client.settings.VRClientSettings;
+import org.vmstudio.visor.api.client.settings.VRClientSettings;
+import org.vmstudio.visor.api.compatibility.mcversion.McVersionClientUtils;
 import net.minecraft.client.player.LocalPlayer;
-import net.minecraft.core.BlockPos;
-import net.minecraft.tags.FluidTags;
 import net.minecraft.world.entity.Pose;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.joml.Vector3f;
 import org.joml.Vector3fc;
+import org.vmstudio.visor.core.client.utils.RoomTasksUtils;
 
 import static org.vmstudio.visor.core.client.VisorClientImpl.MC;
 
@@ -33,8 +33,8 @@ public class TaskRoomSwim extends VisorTask {
     @Getter
     private static TaskRoomSwim instance;
 
-    private static final float SWIM_SPEED = 1.3f;
-    private static final float FRICTION = 0.9f;
+    private static final float STROKE_GAIN = 1.3f;
+    private static final float MOTION_RETENTION = 0.9f;
     private static final float SWIM_MOTION_SCALE = 0.12f;
     private static final float WATER_SPEED_CAP = 0.10f;
     private static final float WATER_SWIMMING_SPEED_CAP = 0.13f;
@@ -66,7 +66,7 @@ public class TaskRoomSwim extends VisorTask {
                 .sub(mainHandPos, new Vector3f()).mul(0.5f)
                 .add(mainHandPos);
         var headPivotPos = preTickPose.getHeadPivot()
-                .sub(0.0f, 0.3f, 0.0f, new Vector3f());
+                .sub(0.0f, RoomTasksUtils.CHEST_DROP, 0.0f, new Vector3f());
 
         final Vector3fc betweenHandsDir = betweenHandsPos
                 .sub(headPivotPos, new Vector3f())
@@ -74,17 +74,17 @@ public class TaskRoomSwim extends VisorTask {
                 .add(preTickPose.getHmd().getDirection())
                 .mul(0.5f);
 
-        var mainHandAim = mainHand.getCustomVector(VRMathUtils.BACK_VECTOR)
-                .add(mainHand.getCustomVector(VRMathUtils.BACK_VECTOR))
+        var handsAim = mainHand.transformDirection(VRMathUtils.FORWARD_VECTOR)
+                .add(offhand.transformDirection(VRMathUtils.FORWARD_VECTOR))
                 .mul(0.5f);
 
-        float swimPower = mainHandAim.add(betweenHandsDir).length() / 2.0f;
+        float swimPower = handsAim.add(betweenHandsDir).length() / 2.0f;
         float handDistance = headPivotPos.distance(betweenHandsPos);
         float distanceDelta = this.lastDist - handDistance;
 
         if (distanceDelta > 0.0) {
             Vector3f swimMotion = betweenHandsDir
-                    .mul(distanceDelta * SWIM_SPEED * swimPower, new Vector3f());
+                    .mul(distanceDelta * STROKE_GAIN * swimPower, new Vector3f());
             this.motion = this.motion.add(swimMotion.mul(SWIM_MOTION_SCALE), new Vector3f());
         }
 
@@ -102,7 +102,7 @@ public class TaskRoomSwim extends VisorTask {
         player.setSprinting(motionLength > SPRINTING_THRESHOLD);
         player.push(this.motion.x(), this.motion.y(), this.motion.z());
 
-        this.motion = this.motion.mul(FRICTION, new Vector3f());
+        this.motion = this.motion.mul(MOTION_RETENTION, new Vector3f());
     }
 
     @Override
@@ -118,25 +118,12 @@ public class TaskRoomSwim extends VisorTask {
             return false;
         }
         if(!VRClientSettings.isRoomSwimEnabled()) return false;
-        if (MC.screen != null) return false;
+        if (McVersionClientUtils.screen() != null) return false;
         if (MC.gameMode == null) return false;
-        if (p == null || !p.isAlive()) return false;
-        if (p.isPassenger()) return false;
-        if (!p.isInWater() && !p.isInLava()) return false;
+        if (p == null || !RoomTasksUtils.isBodyFree(p)) return false;
+        if (ClientContext.localPlayer.isClimbing()) return false;
         if (p.zza != 0.0F || p.xxa != 0.0F) return false;
-
-        BlockPos playerBlockPos = p.blockPosition();
-        boolean hasFluidAtBody = p.level()
-            .getFluidState(playerBlockPos)
-            .is(FluidTags.WATER)
-            || p.level().getFluidState(playerBlockPos).is(FluidTags.LAVA);
-        boolean hasFluidAboveBody = p.level()
-            .getFluidState(playerBlockPos.above())
-            .is(FluidTags.WATER)
-            || p.level().getFluidState(playerBlockPos.above()).is(FluidTags.LAVA);
-
-        if (!hasFluidAtBody || !hasFluidAboveBody) return false;
-        return true;
+        return RoomTasksUtils.isSubmerged(p);
     }
 
     @Override

@@ -4,7 +4,6 @@ import com.mojang.blaze3d.pipeline.RenderTarget;
 import net.irisshaders.iris.gl.buffer.ShaderStorageBufferHolder;
 import net.irisshaders.iris.pipeline.WorldRenderingPipeline;
 import net.irisshaders.iris.shaderpack.materialmap.NamespacedId;
-import net.minecraft.client.Minecraft;
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Pseudo;
@@ -15,8 +14,9 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 import org.vmstudio.visor.api.client.render.VRRenderPass;
-import org.vmstudio.visor.compatibility.ShadersHelper;
-import org.vmstudio.visor.compatibility.ClassDependentMixin;
+import org.vmstudio.visor.api.compatibility.mcversion.render.McRenderTarget;
+import org.vmstudio.visor.compatibility.ShaderCompatHelper;
+import org.vmstudio.visor.compatibility.MixinGate;
 import org.vmstudio.visor.compatibility.iris.IrisCompatHelper;
 import org.vmstudio.visor.compatibility.iris.IrisDhOverrideHelper;
 import org.vmstudio.visor.compatibility.iris.extensions.IrisPipelineExtension;
@@ -31,7 +31,7 @@ import java.util.Map;
 import java.util.function.Function;
 
 @Pseudo
-@ClassDependentMixin("net.irisshaders.iris.pipeline.PipelineManager")
+@MixinGate(classes = "net.irisshaders.iris.pipeline.PipelineManager")
 @Mixin(targets = "net.irisshaders.iris.pipeline.PipelineManager", remap = false)
 public class PipelineManagerMixin implements IrisPipelineManagerExtension {
     @Shadow
@@ -49,7 +49,7 @@ public class PipelineManagerMixin implements IrisPipelineManagerExtension {
     private int versionCounterForSodiumShaderReload;
 
     @Unique
-    private final Map<Object, Map<VRRenderPass, WorldRenderingPipeline>> visor$passPipelines = new HashMap<>();
+    private final Map<NamespacedId, Map<VRRenderPass, WorldRenderingPipeline>> visor$passPipelines = new HashMap<>();
 
     @Unique
     private NamespacedId visor$currentDimension;
@@ -67,7 +67,7 @@ public class PipelineManagerMixin implements IrisPipelineManagerExtension {
     @Inject(method = "preparePipeline", at = @At("RETURN"), cancellable = true)
     private void visor$preparePassPipelines(NamespacedId dimension, CallbackInfoReturnable<WorldRenderingPipeline> cir) {
         if (!IrisCompatHelper.perEyePipelines() || !VisorState.get().isActive()
-                || !ShadersHelper.isShaderActive()) {
+                || !ShaderCompatHelper.isShaderActive()) {
             return;
         }
         try {
@@ -120,11 +120,10 @@ public class PipelineManagerMixin implements IrisPipelineManagerExtension {
 
     @Unique
     private WorldRenderingPipeline visor$buildPassPipeline(NamespacedId dimension, VRRenderPass pass) {
-        Minecraft mc = Minecraft.getInstance();
-        RenderTarget previousMain = mc.mainRenderTarget;
+        RenderTarget previousMain = McRenderTarget.mainTarget();
         RenderTarget passTarget = VRRenderState.getTargetForPass(pass);
         if (passTarget != null) {
-            mc.mainRenderTarget = passTarget;
+            McRenderTarget.setMainTarget(passTarget);
         }
         IrisCompatHelper.buildingPass = pass;
         try {
@@ -138,7 +137,7 @@ public class PipelineManagerMixin implements IrisPipelineManagerExtension {
             return built;
         } finally {
             IrisCompatHelper.buildingPass = null;
-            mc.mainRenderTarget = previousMain;
+            McRenderTarget.setMainTarget(previousMain);
         }
     }
 
@@ -157,8 +156,8 @@ public class PipelineManagerMixin implements IrisPipelineManagerExtension {
     }
 
     @Inject(method = "destroyPipeline", at = @At("HEAD"))
-    private void visor$destroyPassPipelines(CallbackInfo ci) {
-        ShadersHelper.bridge().onPackChanged();
+    private void visor$onPipelineDestroyed(CallbackInfo ci) {
+        ShaderCompatHelper.bridge().onPackChanged();
         IrisCompatHelper.resetPackState();
         visor$lastSsboPass = null;
         visor$destroyPassPipelines();

@@ -1,5 +1,7 @@
 package org.vmstudio.visor.mixin.client.renderer.entity.monsters;
 
+import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
+import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
 import org.vmstudio.visor.api.client.player.pose.PlayerPoseType;
 import org.vmstudio.visor.core.client.ClientContext;
 import org.vmstudio.visor.core.client.render.VRRenderState;
@@ -8,9 +10,8 @@ import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.phys.Vec3;
 import org.joml.Vector3f;
 import org.spongepowered.asm.mixin.Mixin;
-import org.spongepowered.asm.mixin.Shadow;
+import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
-import org.spongepowered.asm.mixin.injection.Redirect;
 
 import static org.vmstudio.visor.core.client.VisorClientImpl.MC;
 
@@ -18,17 +19,32 @@ import static org.vmstudio.visor.core.client.VisorClientImpl.MC;
 @Mixin(GuardianRenderer.class)
 public abstract class GuardianRendererMixin {
 
-    @Shadow
-    protected abstract Vec3 getPosition(LivingEntity livingEntity, double d, float f);
-
-    @Redirect(at = @At(value = "INVOKE", target = "Lnet/minecraft/client/renderer/entity/GuardianRenderer;getPosition(Lnet/minecraft/world/entity/LivingEntity;DF)Lnet/minecraft/world/phys/Vec3;"), method = "render(Lnet/minecraft/world/entity/monster/Guardian;FFLcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/client/renderer/MultiBufferSource;I)V")
+    //? if >=1.21.2 {
+    @WrapOperation(at = @At(value = "INVOKE", target = "Lnet/minecraft/client/renderer/entity/GuardianRenderer;getPosition(Lnet/minecraft/world/entity/LivingEntity;DF)Lnet/minecraft/world/phys/Vec3;"), method = "extractRenderState(Lnet/minecraft/world/entity/monster/Guardian;Lnet/minecraft/client/renderer/entity/state/GuardianRenderState;F)V")
     public Vec3 visor$vrRenderBeam(GuardianRenderer instance,
                                LivingEntity livingEntity,
                                double yOffset,
-                               float partialTick) {
+                               float partialTick, Operation<Vec3> original) {
+        return visor$beamTarget(instance, livingEntity, yOffset, partialTick, original);
+    }
+    //?} else {
+    /*@WrapOperation(at = @At(value = "INVOKE", target = "Lnet/minecraft/client/renderer/entity/GuardianRenderer;getPosition(Lnet/minecraft/world/entity/LivingEntity;DF)Lnet/minecraft/world/phys/Vec3;"), method = "render(Lnet/minecraft/world/entity/monster/Guardian;FFLcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/client/renderer/MultiBufferSource;I)V")
+    public Vec3 visor$vrRenderBeam(GuardianRenderer instance,
+                               LivingEntity livingEntity,
+                               double yOffset,
+                               float partialTick, Operation<Vec3> original) {
+        return visor$beamTarget(instance, livingEntity, yOffset, partialTick, original);
+    }
+    *///?}
+
+    @Unique
+    private static Vec3 visor$beamTarget(GuardianRenderer instance,
+                                         LivingEntity livingEntity,
+                                         double yOffset,
+                                         float partialTick, Operation<Vec3> original) {
         if (VRRenderState.getPhase().isVanilla()
                 || livingEntity != MC.getCameraEntity()) {
-            return this.getPosition(livingEntity, yOffset, partialTick);
+            return original.call(instance, livingEntity, yOffset, partialTick);
         }
 
         float worldScale = ClientContext

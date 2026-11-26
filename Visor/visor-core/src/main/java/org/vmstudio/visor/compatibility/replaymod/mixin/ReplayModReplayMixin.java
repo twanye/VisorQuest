@@ -1,5 +1,6 @@
 package org.vmstudio.visor.compatibility.replaymod.mixin;
 
+import org.vmstudio.visor.api.compatibility.mcversion.McVersionClientUtils;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.AlertScreen;
 import net.minecraft.network.chat.Component;
@@ -9,11 +10,11 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Coerce;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
-import org.vmstudio.visor.compatibility.ClassDependentMixin;
+import org.vmstudio.visor.compatibility.MixinGate;
 import org.vmstudio.visor.core.client.VisorState;
 
 @Pseudo
-@ClassDependentMixin("com.replaymod.replay.ReplayModReplay")
+@MixinGate(classes = "com.replaymod.replay.ReplayModReplay")
 @Mixin(targets = "com.replaymod.replay.ReplayModReplay", remap = false)
 public class ReplayModReplayMixin {
     @Inject(method = "startReplay(Lcom/replaymod/replaystudio/replay/ReplayFile;ZZ)Lcom/replaymod/replay/ReplayHandler;",
@@ -25,9 +26,9 @@ public class ReplayModReplayMixin {
         cir.setReturnValue(null);
 
         // todo: Component.translatable instead Component.literal
-        Minecraft.getInstance().tell(() -> {
-            Minecraft.getInstance().setScreen(new AlertScreen(
-                    () -> Minecraft.getInstance().setScreen(null),
+        McVersionClientUtils.schedule(() -> {
+            McVersionClientUtils.setScreen(new AlertScreen(
+                    () -> McVersionClientUtils.setScreen(null),
                     Component.literal("§cReplay editor is disabled in VR mode or WORLD_ONLY playMode"),
                     Component.literal("Replay editing is disabled in VR.\n" +
                             "Please switch back to PC (NonVR to use Replay editor")

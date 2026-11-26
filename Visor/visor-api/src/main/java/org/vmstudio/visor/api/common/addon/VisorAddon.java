@@ -4,10 +4,11 @@ import org.vmstudio.visor.api.VisorAPI;
 import org.vmstudio.visor.api.client.gui.GuiTexture;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.vmstudio.visor.api.common.addon.component.ComponentIds;
+import org.vmstudio.visor.api.compatibility.mcversion.McVersionUtils;
 
 /**
  * Base interface for Visor addons.
@@ -16,16 +17,17 @@ import org.vmstudio.visor.api.common.addon.component.ComponentIds;
 public interface VisorAddon {
 
     GuiTexture MISSING_ICON = new GuiTexture(
-            new ResourceLocation(VisorAPI.MOD_ID, "textures/gui/overlays/missing_icon.png")
+            McVersionUtils.newResourceLoc(VisorAPI.MOD_ID, "textures/gui/overlays/missing_icon.png")
     );
 
     /**
      * Called when addon is registered
      *<p>
-     *     Use it if you want to load something early.
+     *     Use it if you need to load something early. For example, network channel
      *</p>
      */
-    void onAddonRegister();
+    default void onAddonRegister(){}
+
     /**
      * Called when addon is loaded
      */

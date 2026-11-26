@@ -1,5 +1,7 @@
 package org.vmstudio.visor.core.client.gui.overlays.builtin.settings;
 
+import org.joml.Matrix4fc;
+import org.vmstudio.visor.api.compatibility.mcversion.gui.McGuiUtils;
 import lombok.Getter;
 import lombok.Setter;
 import me.phoenixra.atumvr.api.misc.color.AtumColor;
@@ -17,15 +19,16 @@ import org.vmstudio.visor.api.common.HandType;
 import org.vmstudio.visor.api.common.addon.VisorAddon;
 import org.vmstudio.visor.api.common.addon.component.ComponentPriority;
 import org.vmstudio.visor.api.common.eventbus.listener.VREventListener;
+import org.vmstudio.visor.api.compatibility.mcversion.McVersionUtils;
 import org.vmstudio.visor.core.client.ClientContext;
 import org.vmstudio.visor.core.client.gui.overlays.builtin.settings.widgets.CreateOverlayWidgetSet;
 import org.vmstudio.visor.core.client.gui.overlays.builtin.settings.widgets.OverlaysWidgetSet;
 import org.vmstudio.visor.api.client.gui.widgets.sets.WidgetSet;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
-import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.network.chat.Component;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.joml.Matrix4f;
@@ -37,20 +40,21 @@ public class VROverlaySettings extends VROverlayScreen
     public static final String ID = "settings";
 
     public static final AtumColor TEXT_COLOR = AtumColor.WHITE.blend(AtumColor.BLACK, 0.2f);
+    public static final AtumColor ID_TEXT_COLOR = TEXT_COLOR.blend(AtumColor.BLACK, 0.3f);
 
     public static final Component TEXT_FIND = Component.translatable("visor.overlay.options.overlays.find");
 
-    private static final ResourceLocation BACKGROUND_OVERLAYS = new ResourceLocation(
+    private static final Identifier BACKGROUND_OVERLAYS = McVersionUtils.newResourceLoc(
             "visor:textures/gui/overlays/settings/bg_main_1.png"
     );
-    private static final ResourceLocation BACKGROUND_CREATE = new ResourceLocation(
+    private static final Identifier BACKGROUND_CREATE = McVersionUtils.newResourceLoc(
             "visor:textures/gui/overlays/settings/bg_main_2.png"
     );
 
-    private static final ResourceLocation BACKGROUND_EXTRA = new ResourceLocation(
+    private static final Identifier BACKGROUND_EXTRA = McVersionUtils.newResourceLoc(
             "visor:textures/gui/overlays/settings/bg_main_extra_1.png"
     );
-    private static final ResourceLocation BACKGROUND_EXTRA_EXTENDED = new ResourceLocation(
+    private static final Identifier BACKGROUND_EXTRA_EXTENDED = McVersionUtils.newResourceLoc(
             "visor:textures/gui/overlays/settings/bg_main_extra_2.png"
     );
 
@@ -189,16 +193,19 @@ public class VROverlaySettings extends VROverlayScreen
     }
 
     @Override
-    public void onPreRender(GuiGraphics guiGraphics, int pMouseX, int pMouseY, float partialTicks) {
+    public void onPreRender(GuiGraphicsExtractor guiGraphics, int pMouseX, int pMouseY, float partialTicks) {
         //MAIN BACKGROUND
-        guiGraphics.blit(
+        McGuiUtils.blit(
+                guiGraphics,
                 settingsTab.background(),
                 menuBoundsX, menuBoundsY,
                 0, 0,
+                256, 256,
                 256, 256
         );
         //EXTRA BACKGROUND
-        guiGraphics.blit(
+        McGuiUtils.blit(
+                guiGraphics,
                 settingsTab.backgroundExtra(this),
                 menuBoundsX + 230, menuBoundsY + 6,
                 0, 0,
@@ -308,11 +315,6 @@ public class VROverlaySettings extends VROverlayScreen
     }
 
     @Override
-    public boolean supportsRetainedTexture() {
-        return true;
-    }
-
-    @Override
     public void onEnable() {
         VROverlayHelper.applyPose(
                 this,
@@ -341,7 +343,7 @@ public class VROverlaySettings extends VROverlayScreen
     }
 
     @Override
-    public boolean mouseClicked(double mouseX, double mouseY, int buttonType) {
+    protected boolean onMouseClicked(double mouseX, double mouseY, int buttonType) {
         if (getForcedAnchor() != null) {
             setDragged(false);
             return true;
@@ -353,27 +355,29 @@ public class VROverlaySettings extends VROverlayScreen
             return true;
         }
 
-        return super.mouseClicked(mouseX, mouseY, buttonType);
+        return super.onMouseClicked(mouseX, mouseY, buttonType);
     }
 
     @Override
-    public boolean mouseReleased(double mouseX, double mouseY, int buttonType) {
+    protected boolean onMouseReleased(double mouseX, double mouseY, int buttonType) {
         if (getForcedAnchor() != null) {
             setDragged(false);
             return true;
         }
-        return super.mouseReleased(mouseX, mouseY, buttonType);
+        return super.onMouseReleased(mouseX, mouseY, buttonType);
     }
 
     @Override
-    public void setForcedAnchor(@Nullable PoseAnchor forcedAnchor) {
+    public void setForcedAnchor(@Nullable PoseAnchor forcedAnchor,
+                                @Nullable Vector3fc positionOffset,
+                                @Nullable Matrix4fc rotationOffset) {
         if(getForcedAnchor() != null && forcedAnchor == null){
             relativePosition = ClientContext.localPlayer.getPoseData(PlayerPoseType.ROOM)
                     .convertPositionFrom(PlayerPoseType.RENDER, getPose().getPosition());
             relativeRotation = ClientContext.localPlayer.getPoseData(PlayerPoseType.ROOM)
                     .convertRotationFrom(PlayerPoseType.RENDER, getPose().getRotation());
         }
-        super.setForcedAnchor(forcedAnchor);
+        super.setForcedAnchor(forcedAnchor, positionOffset, rotationOffset);
     }
 
     private void setDragged(boolean flag) {
@@ -421,11 +425,11 @@ public class VROverlaySettings extends VROverlayScreen
                     : settings.createOverlayWidgetSet;
         }
 
-        private ResourceLocation background() {
+        private Identifier background() {
             return this == OVERLAYS ? BACKGROUND_OVERLAYS : BACKGROUND_CREATE;
         }
 
-        private ResourceLocation backgroundExtra(VROverlaySettings settings) {
+        private Identifier backgroundExtra(VROverlaySettings settings) {
             return this == OVERLAYS ? BACKGROUND_EXTRA
                     : settings.isBackgroundExtended()
                     ? BACKGROUND_EXTRA_EXTENDED

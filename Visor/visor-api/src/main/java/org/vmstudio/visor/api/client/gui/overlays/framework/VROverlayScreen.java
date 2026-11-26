@@ -1,5 +1,6 @@
 package org.vmstudio.visor.api.client.gui.overlays.framework;
 
+import com.mojang.blaze3d.platform.InputConstants;
 import com.mojang.blaze3d.pipeline.RenderTarget;
 import lombok.Getter;
 import lombok.Setter;
@@ -10,6 +11,7 @@ import org.vmstudio.visor.api.client.gui.overlays.*;
 import org.vmstudio.visor.api.client.gui.overlays.options.types.OverlayOptionsPose;
 import org.vmstudio.visor.api.client.gui.overlays.options.types.OverlayOptionsResizing;
 import org.vmstudio.visor.api.client.gui.overlays.options.types.OverlayOptionsVisibility;
+import org.vmstudio.visor.api.client.input.MouseButtonType;
 import org.vmstudio.visor.api.client.player.pose.PlayerPoseType;
 import org.vmstudio.visor.api.client.player.pose.PoseAnchor;
 import org.vmstudio.visor.api.client.gui.overlays.options.OverlayOptionGroup;
@@ -18,16 +20,21 @@ import org.vmstudio.visor.api.common.HandType;
 import org.vmstudio.visor.api.common.VRException;
 import org.vmstudio.visor.api.common.addon.component.ComponentPriority;
 import org.vmstudio.visor.api.common.addon.VisorAddon;
-import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 import net.minecraft.util.Mth;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.joml.Matrix4f;
+import org.joml.Matrix4fc;
 import org.joml.Vector3f;
 import org.vmstudio.visor.api.common.player.VRPose;
+import org.vmstudio.visor.api.common.utils.VRMathUtils;
+import org.vmstudio.visor.api.compatibility.mcversion.gui.McScreen;
+import org.vmstudio.visor.api.compatibility.mcversion.gui.McGuiRenderer;
+import org.vmstudio.visor.api.compatibility.mcversion.gui.McGuiUtils;
 
 import java.io.IOException;
 import java.util.*;
@@ -36,7 +43,18 @@ import java.util.*;
  * {@link VROverlay} that is rendered
  * as a minecraft {@link Screen}
  */
-public abstract class VROverlayScreen extends Screen implements VROverlay {
+public abstract class VROverlayScreen extends McScreen implements VROverlay {
+
+    private static VROverlayScreen renderingOverlay;
+
+    /**
+     * Get the overlay screen that is currently rendered
+     * (used in tooltip)
+     */
+    @Nullable
+    public static VROverlayScreen getRenderingOverlay(){
+        return renderingOverlay;
+    }
 
     @Getter @NotNull
     private final String id;
@@ -50,7 +68,7 @@ public abstract class VROverlayScreen extends Screen implements VROverlay {
     @Getter
     private final VROverlayPose pose;
 
-    @Getter @Setter
+    @Getter
     private @Nullable PoseAnchor forcedAnchor;
 
 
@@ -95,15 +113,13 @@ public abstract class VROverlayScreen extends Screen implements VROverlay {
 
     protected boolean initAgain;
 
-    private boolean textureDirty = true;
-
 
     private static long mouseDragDelay;
-    private final boolean[] pressedDragMouseButtons = new boolean[3];
+    private final EnumSet<MouseButtonType> pressedDragMouseButtons = EnumSet.noneOf(MouseButtonType.class);
 
     private boolean beingDragged = false;
-    private Vector3f dragPositionOffset = new Vector3f(0, 0, -0.3f);
-    private Matrix4f dragRotationMatrix = new Matrix4f();
+    private final Vector3f forcedPositionOffset = new Vector3f();
+    private final Matrix4f forcedRotationOffset = new Matrix4f();
 
     private boolean beingResized = false;
     private HandType resizeHand;
@@ -136,8 +152,6 @@ public abstract class VROverlayScreen extends Screen implements VROverlay {
         this.id = id.toLowerCase();
         this.priority = priority;
         this.pose = new VROverlayPose(this, overlayScale);
-
-        this.minecraft = Minecraft.getInstance();
 
         optionsMap = new LinkedHashMap<>();
         List<OverlayOptionGroup<?>> preOptions = createOptions();
@@ -173,11 +187,11 @@ public abstract class VROverlayScreen extends Screen implements VROverlay {
     protected void onTick() {}
 
 
-    protected void onPreRender(GuiGraphics guiGraphics,
+    protected void onPreRender(GuiGraphicsExtractor guiGraphics,
                                int mouseX, int mouseY,
                                float partialTicks) {}
 
-    protected void onRender(GuiGraphics guiGraphics,
+    protected void onRender(GuiGraphicsExtractor guiGraphics,
                             int mouseX, int mouseY,
                             float partialTicks) {}
 
@@ -246,7 +260,6 @@ public abstract class VROverlayScreen extends Screen implements VROverlay {
 
     @Override
     public final void tick() {
-        markTextureDirty();
         onPreTick();
         boolean oldVisible = visible;
         var preVisible = optionsVisibility == null || optionsVisibility.isVisible();
@@ -264,9 +277,9 @@ public abstract class VROverlayScreen extends Screen implements VROverlay {
 
 
     @Override
-    public final void render(@NotNull GuiGraphics guiGraphics,
-                             int pMouseX, int pMouseY,
-                             float partialTicks
+    protected final void renderContents(@NotNull GuiGraphicsExtractor guiGraphics,
+                                        int pMouseX, int pMouseY,
+                                        float partialTicks
     ) {
         if (initAgain) {
             init();
@@ -287,19 +300,46 @@ public abstract class VROverlayScreen extends Screen implements VROverlay {
             if(!visible) return;
         }
 
-        onPreRender(
-                guiGraphics,
-                pMouseX, pMouseY,
-                partialTicks
-        );
+        VROverlayScreen previousRendering = renderingOverlay;
+        renderingOverlay = this;
+        try {
+            onPreRender(
+                    guiGraphics,
+                    pMouseX, pMouseY,
+                    partialTicks
+            );
 
-        super.render(guiGraphics, pMouseX, pMouseY, partialTicks);
+            super.renderContents(guiGraphics, pMouseX, pMouseY, partialTicks);
 
-        onRender(
-                guiGraphics,
-                pMouseX, pMouseY,
-                partialTicks
-        );
+            onRender(
+                    guiGraphics,
+                    pMouseX, pMouseY,
+                    partialTicks
+            );
+        } finally {
+            renderingOverlay = previousRendering;
+        }
+    }
+
+    /**
+     * Renders overlay screen for target.
+     * Do not touch!
+     */
+    @ApiStatus.Internal
+    public final void renderToTarget(@NotNull GuiGraphicsExtractor guiGraphics,
+                                     float partialTicks) {
+        VROverlayScreen previousRendering = renderingOverlay;
+        renderingOverlay = this;
+        try {
+            McGuiUtils.renderWithTooltip(
+                    this, guiGraphics,
+                    getMouseX(), getMouseY(),
+                    partialTicks
+            );
+            McGuiRenderer.end(guiGraphics);
+        } finally {
+            renderingOverlay = previousRendering;
+        }
     }
 
     @Override
@@ -317,14 +357,15 @@ public abstract class VROverlayScreen extends Screen implements VROverlay {
 
 
     @Override
-    public void renderBackground(@NotNull GuiGraphics guiGraphics) {
+    protected void renderScreenBackground(@NotNull GuiGraphicsExtractor guiGraphics,
+                                          int mouseX, int mouseY,
+                                          float partialTicks) {
         //empty
     }
 
     @Override
     public void setEnabled(boolean flag) {
         if (flag == enabled) return;
-        markTextureDirty();
         if (flag) {
             enabled = true;
             updateSize();
@@ -348,17 +389,25 @@ public abstract class VROverlayScreen extends Screen implements VROverlay {
 
 
     public void updateSize(){
-        markTextureDirty();
         guiScaleFactor = VisorAPI.client().getGuiManager().calculateScale(
                 0,
                 getRequestedWidth(),
                 getRequestedHeight()
         );
-        init(
-                Minecraft.getInstance(),
+        McGuiUtils.initScreen(
+                this,
                 getRequestedWidthScaled(),
                 getRequestedHeightScaled()
         );
+    }
+
+    @Override
+    public void setForcedAnchor(@Nullable PoseAnchor anchor,
+                                @Nullable Vector3fc positionOffset,
+                                @Nullable Matrix4fc rotationOffset) {
+        forcedPositionOffset.set(Objects.requireNonNullElse(positionOffset, DEFAULT_FORCED_POSITION_OFFSET));
+        forcedRotationOffset.set(Objects.requireNonNullElse(rotationOffset, VRMathUtils.EMPTY_MATRIX));
+        forcedAnchor = anchor;
     }
 
     @Override
@@ -372,17 +421,15 @@ public abstract class VROverlayScreen extends Screen implements VROverlay {
         VRPlayerPoseClient renderPose = vrClient.getVRLocalPlayer().getPoseData(PlayerPoseType.RENDER);
         VRPose anchorPose = dragAnchor.getSupplier().apply(renderPose);
 
-        Vector3f dragPositionOffset = anchorPose.reverseCustomVector(
+        Vector3f dragPositionOffset = anchorPose.inverseTransformDirection(
                 getPose().getPosition().sub(anchorPose.getPosition(), new Vector3f())
         ).div(renderPose.getWorldScale());
         Matrix4f dragRotation = anchorPose.getRotation()
                 .invert(new Matrix4f())
                 .mul(getPose().getRotation(), new Matrix4f());
 
-        this.dragPositionOffset.set(dragPositionOffset);
-        this.dragRotationMatrix.set(dragRotation);
         this.beingDragged = true;
-        setForcedAnchor(dragAnchor);
+        setForcedAnchor(dragAnchor, dragPositionOffset, dragRotation);
     }
 
     public void stopDragging() {
@@ -395,7 +442,7 @@ public abstract class VROverlayScreen extends Screen implements VROverlay {
 
             PoseAnchor posAnchor = poseOptions.getPositionAnchor();
             VRPose posAnchorPose = posAnchor.getSupplier().apply(renderPose);
-            Vector3f offsetPos = posAnchorPose.reverseCustomVector(
+            Vector3f offsetPos = posAnchorPose.inverseTransformDirection(
                     getPose().getPosition().sub(posAnchorPose.getPosition(), new Vector3f())
             ).div(renderPose.getWorldScale());
 
@@ -423,12 +470,12 @@ public abstract class VROverlayScreen extends Screen implements VROverlay {
         VRPlayerPoseClient renderPose = VisorAPI.client().getVRLocalPlayer().getPoseData(PlayerPoseType.RENDER);
         VRPose anchorPose = forcedAnchor.getSupplier().apply(renderPose);
 
-        Vector3f positionOffset = new Vector3f(dragPositionOffset)
+        Vector3f positionOffset = new Vector3f(forcedPositionOffset)
                 .mul(renderPose.getWorldScale());
-        Vector3f newPosition = anchorPose.getCustomVector(positionOffset)
+        Vector3f newPosition = anchorPose.transformDirection(positionOffset)
                 .add(anchorPose.getPosition());
         Matrix4f newRotation = new Matrix4f(anchorPose.getRotation())
-                .mul(dragRotationMatrix, new Matrix4f());
+                .mul(forcedRotationOffset, new Matrix4f());
 
         getPose().update(
                 newPosition,
@@ -497,28 +544,18 @@ public abstract class VROverlayScreen extends Screen implements VROverlay {
         return mouseDragDelay < System.currentTimeMillis();
     }
     public boolean isDragMouseButtonPressed(int buttonType){
-        if (buttonType < 0 || buttonType >= pressedDragMouseButtons.length) {
-            return false;
-        }
-        return pressedDragMouseButtons[buttonType];
+        return pressedDragMouseButtons.contains(MouseButtonType.fromId(buttonType));
     }
     public void startDragMouse(int buttonType){
-        if (buttonType < 0 || buttonType >= pressedDragMouseButtons.length) {
-            return;
-        }
-        pressedDragMouseButtons[buttonType] = true;
+        pressedDragMouseButtons.add(MouseButtonType.fromId(buttonType));
         mouseDragDelay = System.currentTimeMillis();
         mouseDragged(getMouseX(), getMouseY(), buttonType, 0, 0);
     }
     public void finishDragMouse(int buttonType){
-        if (buttonType < 0 || buttonType >= pressedDragMouseButtons.length) {
-            return;
+        pressedDragMouseButtons.remove(MouseButtonType.fromId(buttonType));
+        if (pressedDragMouseButtons.isEmpty()) {
+            mouseDragDelay = Long.MAX_VALUE;
         }
-        pressedDragMouseButtons[buttonType] = false;
-        for (boolean pressed : pressedDragMouseButtons) {
-            if (pressed) return;
-        }
-        mouseDragDelay = Long.MAX_VALUE;
     }
 
     @Override
@@ -551,10 +588,6 @@ public abstract class VROverlayScreen extends Screen implements VROverlay {
                 (int) (rawY * (double) this.height)
         );
 
-        if (oldMouseX != cursorData.getCursorX() || oldMouseY != cursorData.getCursorY()) {
-            markTextureDirty();
-        }
-
         if(!activeCursor){
             return;
         }
@@ -569,14 +602,12 @@ public abstract class VROverlayScreen extends Screen implements VROverlay {
         if (canDragMouse()) {
             int deltaX = cursorData.getCursorX() - oldMouseX;
             int deltaY = cursorData.getCursorY() - oldMouseY;
-            for (int buttonType = 0; buttonType < pressedDragMouseButtons.length; buttonType++) {
-                if (pressedDragMouseButtons[buttonType]) {
-                    mouseDragged(
-                            cursorData.getCursorX(), cursorData.getCursorY(),
-                            buttonType,
-                            deltaX, deltaY
-                    );
-                }
+            for (MouseButtonType type : pressedDragMouseButtons) {
+                mouseDragged(
+                        cursorData.getCursorX(), cursorData.getCursorY(),
+                        type.getId(),
+                        deltaX, deltaY
+                );
             }
         }
 
@@ -602,79 +633,65 @@ public abstract class VROverlayScreen extends Screen implements VROverlay {
 
 
     @Override
-    public boolean mouseClicked(double mouseX, double mouseY, int buttonType) {
-        markTextureDirty();
-        if (buttonType == 0 && isCursorOnResizeHandle(getRawMouseX(), getRawMouseY())) {
+    protected boolean onMouseClicked(double mouseX, double mouseY, int buttonType) {
+        if (buttonType == InputConstants.MOUSE_BUTTON_LEFT && isCursorOnResizeHandle(getRawMouseX(), getRawMouseY())) {
             startResizing();
             return true;
         }
-        if (buttonType == 0 && isCursorOnDragHandle(getRawMouseX(), getRawMouseY())) {
+        if (buttonType == InputConstants.MOUSE_BUTTON_LEFT && isCursorOnDragHandle(getRawMouseX(), getRawMouseY())) {
             startDragging();
             return true;
         }
-        return super.mouseClicked(mouseX, mouseY, buttonType);
+        return super.onMouseClicked(mouseX, mouseY, buttonType);
     }
     @Override
-    public boolean mouseReleased(double mouseX, double mouseY, int buttonType) {
-        markTextureDirty();
-        if (buttonType == 0 && isBeingResized()) {
+    protected boolean onMouseReleased(double mouseX, double mouseY, int buttonType) {
+        if (buttonType == InputConstants.MOUSE_BUTTON_LEFT && isBeingResized()) {
             stopResizing();
             return true;
         }
-        if (buttonType == 0 && isBeingDragged()) {
+        if (buttonType == InputConstants.MOUSE_BUTTON_LEFT && isBeingDragged()) {
             stopDragging();
             return true;
         }
-        return super.mouseReleased(mouseX, mouseY, buttonType);
-    }
-    @Override
-    public boolean mouseScrolled(double mouseX, double mouseY, double scrollDelta) {
-        markTextureDirty();
-        return super.mouseScrolled(mouseX, mouseY, scrollDelta);
+        return super.onMouseReleased(mouseX, mouseY, buttonType);
     }
 
+    // ------ !!KEEP METHODS BELOW!! ------
+    // Remapping will break these methods if not overridden
     @Override
-    public void mouseMoved(double mouseX, double mouseY) {
-        super.mouseMoved(mouseX, mouseY);
+    public boolean mouseClicked(double mouseX, double mouseY, int buttonType) {
+        return onMouseClicked(mouseX, mouseY, buttonType);
+    }
+    @Override
+    public boolean mouseReleased(double mouseX, double mouseY, int buttonType) {
+        return onMouseReleased(mouseX, mouseY, buttonType);
     }
     @Override
     public boolean mouseDragged(double mouseX, double mouseY,
                                 int buttonType,
                                 double deltaX, double deltaY) {
-        markTextureDirty();
-        return super.mouseDragged(mouseX, mouseY, buttonType, deltaX, deltaY);
+        return onMouseDragged(mouseX, mouseY, buttonType, deltaX, deltaY);
     }
-
     @Override
-    public boolean keyReleased(int i, int j, int k) {
-        markTextureDirty();
-        return super.keyReleased(i, j, k);
+    public boolean mouseScrolled(double mouseX, double mouseY, double scrollDelta) {
+        return onMouseScrolled(mouseX, mouseY, scrollDelta);
+    }
+    @Override
+    public void mouseMoved(double mouseX, double mouseY) {
+        super.mouseMoved(mouseX, mouseY);
+    }
+    @Override
+    public boolean keyPressed(int keyCode, int keyScan, int modifiers) {
+        return onKeyPressed(keyCode, keyScan, modifiers);
+    }
+    @Override
+    public boolean keyReleased(int keyCode, int keyScan, int modifiers) {
+        return onKeyReleased(keyCode, keyScan, modifiers);
     }
     @Override
     public boolean charTyped(char chr, int modifiers) {
-        markTextureDirty();
-        return super.charTyped(chr, modifiers);
-    }
-
-    @Override
-    public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
-        markTextureDirty();
-        return super.keyPressed(keyCode, scanCode, modifiers);
-    }
-
-    @Override
-    public boolean isTextureDirty() {
-        return textureDirty;
-    }
-
-    @Override
-    public void markTextureDirty() {
-        textureDirty = true;
-    }
-
-    @Override
-    public void clearTextureDirty() {
-        textureDirty = false;
+        return onCharTyped(chr, modifiers);
     }
 
     @Override

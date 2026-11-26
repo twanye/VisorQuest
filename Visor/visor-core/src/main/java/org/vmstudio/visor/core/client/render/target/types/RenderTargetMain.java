@@ -3,13 +3,11 @@ package org.vmstudio.visor.core.client.render.target.types;
 import com.mojang.blaze3d.pipeline.RenderTarget;
 import lombok.Getter;
 import me.phoenixra.atumvr.api.utils.GLUtils;
-import me.phoenixra.atumvr.core.session.platform.XRPlatform;
 import org.vmstudio.visor.core.client.VisorClientImpl;
 import org.vmstudio.visor.extensions.client.WindowExtension;
-import org.vmstudio.visor.extensions.client.render.RenderTargetExtension;
 import org.vmstudio.visor.core.client.render.target.RenderTargetHolder;
 import org.vmstudio.visor.core.client.render.target.VRRenderTarget;
-import net.minecraft.client.Minecraft;
+import org.vmstudio.visor.api.compatibility.mcversion.render.McRenderTarget;
 
 import static org.vmstudio.visor.core.client.VisorClientImpl.MC;
 
@@ -19,6 +17,8 @@ public class RenderTargetMain implements RenderTargetHolder {
     private RenderTarget target;
     @Getter
     private RenderTarget mirrorTarget;
+    @Getter
+    private RenderTarget scalingTarget;
 
     @Override
     public void init(int width, int height) throws Exception {
@@ -34,14 +34,10 @@ public class RenderTargetMain implements RenderTargetHolder {
         VisorClientImpl.LOGGER.info(this.target.toString());
 
         var mcWindow = (WindowExtension) (Object) MC.getWindow();
-        int mirrorWidth = XRPlatform.isAndroid()
-                ? 1 : mcWindow.visor$getActualScreenWidth();
-        int mirrorHeight = XRPlatform.isAndroid()
-                ? 1 : mcWindow.visor$getActualScreenHeight();
         this.mirrorTarget = new VRRenderTarget(
                 "Mirror",
-                mirrorWidth,
-                mirrorHeight,
+                mcWindow.visor$mcScreenWidth(),
+                mcWindow.visor$mcScreenHeight(),
                 true, () -> -1,
                 false, false
         );
@@ -53,19 +49,31 @@ public class RenderTargetMain implements RenderTargetHolder {
 
     }
 
+    public void initScalingTarget(int width, int height) {
+        scalingTarget = new VRRenderTarget(
+                "Scaling",
+                width, height,
+                false,
+                () -> -1,
+                false, false
+        );
+        GLUtils.checkGLError("Scaling VR target setup");
+        VisorClientImpl.LOGGER.info(this.scalingTarget.toString());
+    }
+
     @Override
     public void resize(int width, int height) throws Exception {
-        ((RenderTargetExtension) target).visor$setUseStencil(
+        //? if <1.21.2 {
+        /*((org.vmstudio.visor.extensions.client.render.RenderTargetExtension) target).visor$setUseStencil(
                 true
         );
-        target.resize(width, height, Minecraft.ON_OSX);
+        *///?}
+        McRenderTarget.resize(target, width, height);
         var mcWindow = (WindowExtension) (Object) MC.getWindow();
-        this.mirrorTarget.resize(
-                XRPlatform.isAndroid()
-                        ? 1 : Math.max(1, mcWindow.visor$getActualScreenWidth()),
-                XRPlatform.isAndroid()
-                        ? 1 : Math.max(1, mcWindow.visor$getActualScreenHeight()),
-                Minecraft.ON_OSX
+        McRenderTarget.resize(
+                this.mirrorTarget,
+                Math.max(1, mcWindow.visor$mcScreenWidth()),
+                Math.max(1, mcWindow.visor$mcScreenHeight())
         );
 
     }
@@ -80,6 +88,9 @@ public class RenderTargetMain implements RenderTargetHolder {
             mirrorTarget.destroyBuffers();
             mirrorTarget = null;
         }
+        if(scalingTarget != null) {
+            scalingTarget.destroyBuffers();
+            scalingTarget = null;
+        }
     }
-
 }

@@ -1,5 +1,8 @@
+// #!MC-VERSION:: 26.3+
 package org.vmstudio.visor.mixin.client.input;
 
+import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
+import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
 import org.vmstudio.visor.api.common.utils.Vector3fHistory;
 import org.vmstudio.visor.core.client.ClientContext;
 import org.vmstudio.visor.core.client.VisorState;
@@ -9,6 +12,7 @@ import net.minecraft.client.MouseHandler;
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
+import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.*;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
@@ -27,6 +31,8 @@ public abstract class MouseHandlerMixin {
     /* ****************** *\
       //--------VR MOUSE--------\\
         \* ****************** */
+    // 1.20.5 split this into handleAccumulatedMovement (which also dispatches the screen
+    // mouseMoved/mouseDragged events - cancelling THAT kills slider dragging) + turnPlayer(double)
     @Inject(at = @At("HEAD"), method = "turnPlayer", cancellable = true)
     public void visor$noTurn(CallbackInfo ci) {
         if (VisorState.get().isNotActive()) {
@@ -50,19 +56,41 @@ public abstract class MouseHandlerMixin {
         ci.cancel();
     }
 
+    @WrapOperation(at = @At(value = "INVOKE", target = "Lnet/minecraft/client/Minecraft;isWindowActive()Z"), method = {"onMove", "handleAccumulatedMovement"})
+    public boolean visor$mouseMoveIfWindowNotFocused(Minecraft instance, Operation<Boolean> original) {
+        return VisorState.get().isActive() || original.call(instance);
+    }
+
     //here we use ActualScreenWidth, to support mouse usage in GUI mirror mode
-    @ModifyArg(at = @At(value = "INVOKE", target = "Lcom/mojang/blaze3d/platform/InputConstants;grabOrReleaseMouse(JIDD)V"), index = 2, method = {"grabMouse", "releaseMouse"})
+    @ModifyArg(at = @At(value = "INVOKE", target = "Lcom/mojang/blaze3d/platform/InputConstants;grabMouse(Lcom/mojang/blaze3d/platform/Window;DD)V"), index = 1, method = "grabMouse")
+    public double visor$vrMouseXCenterOnGrab(double x) {
+        return visor$vrMouseXCenter(x);
+    }
+    @ModifyArg(at = @At(value = "INVOKE", target = "Lcom/mojang/blaze3d/platform/InputConstants;releaseMouse(Lcom/mojang/blaze3d/platform/Window;DD)V"), index = 1, method = "releaseMouse")
+    public double visor$vrMouseXCenterOnRelease(double x) {
+        return visor$vrMouseXCenter(x);
+    }
+    @ModifyArg(at = @At(value = "INVOKE", target = "Lcom/mojang/blaze3d/platform/InputConstants;grabMouse(Lcom/mojang/blaze3d/platform/Window;DD)V"), index = 2, method = "grabMouse")
+    public double visor$vrMouseYCenterOnGrab(double y) {
+        return visor$vrMouseYCenter(y);
+    }
+    @ModifyArg(at = @At(value = "INVOKE", target = "Lcom/mojang/blaze3d/platform/InputConstants;releaseMouse(Lcom/mojang/blaze3d/platform/Window;DD)V"), index = 2, method = "releaseMouse")
+    public double visor$vrMouseYCenterOnRelease(double y) {
+        return visor$vrMouseYCenter(y);
+    }
+
+    @Unique
     public double visor$vrMouseXCenter(double x) {
         return VisorState.get().isActive()
                 ? (double) ((WindowExtension) (Object) minecraft.getWindow())
-                .visor$getActualScreenWidth() / 2
+                .visor$mcScreenWidth() / 2
                 : x;
     }
-    @ModifyArg(at = @At(value = "INVOKE", target = "Lcom/mojang/blaze3d/platform/InputConstants;grabOrReleaseMouse(JIDD)V"), index = 3, method = {"grabMouse", "releaseMouse"})
+    @Unique
     public double visor$vrMouseYCenter(double y) {
         return VisorState.get().isActive()
                 ? (double) ((WindowExtension) (Object) minecraft.getWindow())
-                .visor$getActualScreenHeight() / 2
+                .visor$mcScreenHeight() / 2
                 : y;
     }
     @ModifyVariable(at = @At(value = "HEAD"), ordinal = 0, method = "onMove", argsOnly = true)
@@ -70,7 +98,7 @@ public abstract class MouseHandlerMixin {
         if (VisorState.get().isActive()) {
             x *= ClientContext.guiManager.getGuiWidth()
                     / (double) ((WindowExtension) (Object) minecraft.getWindow())
-                    .visor$getActualScreenWidth();
+                    .visor$mcScreenWidth();
         }
         return x;
     }
@@ -79,7 +107,7 @@ public abstract class MouseHandlerMixin {
         if (VisorState.get().isActive()) {
             y *= (double) ClientContext.guiManager.getGuiHeight()
                     / (double) ((WindowExtension) (Object) minecraft.getWindow())
-                    .visor$getActualScreenHeight();
+                    .visor$mcScreenHeight();
         }
         return y;
     }

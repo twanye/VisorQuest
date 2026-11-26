@@ -5,7 +5,7 @@ import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
 import net.minecraft.client.Minecraft;
 import net.minecraft.network.FriendlyByteBuf;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
@@ -32,7 +32,7 @@ public final class VisorChannel {
     @Getter
     private final VisorAddon owner;
     @Getter
-    private final ResourceLocation channelId;
+    private final Identifier channelId;
     @Getter
     private final int networkVersion;
 
@@ -68,14 +68,14 @@ public final class VisorChannel {
             payloadId = buffer.readByte();
         }catch (IndexOutOfBoundsException e){
             VisorAPI.client().getLogger().error(
-                    "VisorChannel '"+channelId+"': Unidentified payload received on client"
+                    "VisorChannel '"+channelId+"': Received unidentified payload from server"
             );
             return;
         }
         VisorPayloadToClient payload = toClientReader.read(payloadId, buffer);
         if (payload == null) {
             VisorAPI.client().getLogger().error(
-                    "VisorChannel '"+channelId+"': Got unexpected payload identifier on client: {}", payloadId
+                    "VisorChannel '"+channelId+"': Received unexpected payloadID from server: {}", payloadId
             );
             return;
         }
@@ -91,14 +91,14 @@ public final class VisorChannel {
             payloadId = buffer.readByte();
         }catch (IndexOutOfBoundsException e){
             VisorAPI.server().getLogger().error(
-                    "VisorChannel '"+channelId+"': Unidentified payload received on server"
+                    "VisorChannel '"+channelId+"': Received unidentified payload from client. Sender UUID: {}  Sender name: {}", sender.getStringUUID(), sender.getName()
             );
             return;
         }
         VisorPayloadToServer payload = toServerReader.read(payloadId, buffer);
         if (payload == null) {
             VisorAPI.server().getLogger().error(
-                    "VisorChannel '"+channelId+"': Got unexpected payload identifier on server: {}", payloadId
+                    "VisorChannel '"+channelId+"': Received unexpected payloadID from client: '{}' Sender UUID: {}  Sender name: {}", payloadId, sender.getStringUUID(), sender.getName()
             );
             return;
         }
@@ -164,14 +164,14 @@ public final class VisorChannel {
 
 
     public static @NotNull Builder builder(@NotNull VisorAddon owner,
-                                           @NotNull ResourceLocation id,
+                                           @NotNull Identifier id,
                                            int networkVersion) {
         return new Builder(owner, id, networkVersion);
     }
 
     public static final class Builder {
         private final VisorAddon owner;
-        private final ResourceLocation channelId;
+        private final Identifier channelId;
         private final int networkVersion;
 
         @Nullable private PayloadReader<VisorPayloadToServer> toServerReader;
@@ -180,7 +180,7 @@ public final class VisorChannel {
         @Nullable private PayloadReader<VisorPayloadToClient> toClientReader;
         @Nullable private VisorChannel.PacketHandlerToClient<VisorPayloadToClient> toClientHandler;
 
-        private Builder(VisorAddon owner, ResourceLocation channelId, int networkVersion) {
+        private Builder(VisorAddon owner, Identifier channelId, int networkVersion) {
             this.owner = owner;
             this.channelId = channelId;
             this.networkVersion = networkVersion;
@@ -207,7 +207,7 @@ public final class VisorChannel {
         public @NotNull VisorChannel build() {
             if (toServerReader == null && toClientReader == null) {
                 throw new IllegalStateException(
-                        "VisorAddonChannel " + channelId + " must declare at least one direction");
+                        "VisorAddonChannel " + channelId + " haven't declared any packet readers!");
             }
             return new VisorChannel(this);
         }

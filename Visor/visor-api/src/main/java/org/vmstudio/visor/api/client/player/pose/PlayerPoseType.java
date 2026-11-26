@@ -31,8 +31,6 @@ public enum PlayerPoseType {
      *   to provide smooth visuals.
      * </p>
      */
-    RENDER;
-
-    public static final PlayerPoseType RELATIVE = ROOM;
+    RENDER
 
 }

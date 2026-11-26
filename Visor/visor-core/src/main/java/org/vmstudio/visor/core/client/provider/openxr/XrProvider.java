@@ -1,31 +1,31 @@
 package org.vmstudio.visor.core.client.provider.openxr;
 
+import lombok.Getter;
 import me.phoenixra.atumvr.api.AtumVRLogger;
 import me.phoenixra.atumvr.api.rendering.AtumVRRenderer;
 import me.phoenixra.atumvr.core.XRProvider;
 import me.phoenixra.atumvr.core.XRState;
+import me.phoenixra.atumvr.core.enums.XRGraphicsApi;
 import me.phoenixra.atumvr.core.enums.XRSessionState;
-import me.phoenixra.atumvr.core.session.platform.XRPlatform;
+import org.vmstudio.visor.api.client.settings.VRClientSettings;
 import org.vmstudio.visor.core.client.ClientContext;
 import org.vmstudio.visor.core.client.VisorClientImpl;
 import org.vmstudio.visor.core.client.provider.openxr.render.XrRenderer;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
+
 import static org.vmstudio.visor.core.client.VisorClientImpl.MC;
 
 public class XrProvider extends XRProvider {
 
+    @Getter
+    private XRSessionState sessionState = XRSessionState.UNKNOWN;
+
     public XrProvider(@NotNull String appName, @NotNull AtumVRLogger logger) {
         super(appName, logger);
 
-        XRPlatform.setAndroidBridge(new QuestAndroidXRBridge());
-
         ClientContext.rawPoseHandler = new XrRawPoseHandler(this);
         ClientContext.inputProvider = inputHandler;
-    }
-
-    @Override
-    public float getPreferredRefreshRate() {
-        return QuestVLoader.isQuest3Family() ? 120.0F : 72.0F;
     }
 
     @Override
@@ -33,10 +33,11 @@ public class XrProvider extends XRProvider {
 
         super.initializeVR();
 
-        var trackersManager = getInputHandler().getTrackerManager();
         ClientContext.rawPoseHandler.getTrackersData().setTracking(
-                trackersManager.isSupported()
-                        && !trackersManager.getDevicesMap().isEmpty()
+                !getInputHandler().getTrackerProviders().isEmpty()
+        );
+        ClientContext.rawPoseHandler.getHandsData().setTracking(
+                getInputHandler().getHandsProvider() != null
         );
 
         ClientContext.settingsManager.loadOptions();
@@ -48,6 +49,11 @@ public class XrProvider extends XRProvider {
     public void startFrame() {
         super.startFrame();
         ClientContext.rawPoseHandler.updatePose();
+    }
+
+    @Override
+    public @Nullable XRGraphicsApi getGraphicsApiPreference() {
+        return VRClientSettings.getGraphicsApi().toPreference();
     }
 
     @Override
@@ -67,9 +73,7 @@ public class XrProvider extends XRProvider {
 
     @Override
     public void onStateChanged(XRSessionState state) {
-        if(state == XRSessionState.EXITING){
-            MC.stop();
-        }
+        sessionState = state;
     }
 
     @Override

@@ -2,16 +2,19 @@ package org.vmstudio.visor.compatibility.iris;
 
 import com.mojang.blaze3d.pipeline.RenderTarget;
 import me.phoenixra.atumvr.api.enums.EyeType;
-import net.minecraft.client.Minecraft;
 import org.jetbrains.annotations.NotNull;
 import org.vmstudio.visor.api.ModLoader;
+import org.vmstudio.visor.api.compatibility.mcversion.render.McRenderTarget;
+//? if >=1.21.5 {
+import org.vmstudio.visor.api.compatibility.mcversion.render.McVertexBuilder;
+//?}
 import org.vmstudio.visor.api.client.render.VRRenderPass;
 import org.vmstudio.visor.api.common.addon.VisorAddon;
 import org.vmstudio.visor.api.common.utils.LoggerUtils;
-import org.vmstudio.visor.compatibility.ShadersHelper;
+import org.vmstudio.visor.compatibility.ShaderCompatHelper;
 import org.vmstudio.visor.compatibility.shaders.IrisVRBridge;
 import org.vmstudio.visor.core.client.render.VRRenderState;
-import org.vmstudio.visor.core.client.settings.VRClientSettings;
+import org.vmstudio.visor.api.client.settings.VRClientSettings;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
@@ -56,6 +59,56 @@ public final class IrisCompatHelper {
             } catch (ClassNotFoundException ignored) {}
         }
         throw new ClassNotFoundException(String.join(" / ", names));
+    }
+
+    private static final int TARGET_VERSION_STRIDE = 1 << 20;
+    private static int targetVersionGeneration = 0;
+    private static Field depthBufferVersionField;
+    private static Field colorBufferVersionField;
+    private static volatile Boolean targetVersionStampAvailable;
+
+    public static boolean isTargetVersionStampAvailable() {
+        Boolean available = targetVersionStampAvailable;
+        if (available != null) {
+            return available;
+        }
+        synchronized (IrisCompatHelper.class) {
+            if (targetVersionStampAvailable != null) {
+                return targetVersionStampAvailable;
+            }
+            try {
+                Field depth = RenderTarget.class.getDeclaredField("iris$depthBufferVersion");
+                Field color = RenderTarget.class.getDeclaredField("iris$colorBufferVersion");
+                depth.setAccessible(true);
+                color.setAccessible(true);
+                depthBufferVersionField = depth;
+                colorBufferVersionField = color;
+                targetVersionStampAvailable = true;
+            } catch (Throwable t) {
+                targetVersionStampAvailable = false;
+                LoggerUtils.getLogger().info(
+                        "Visor: Iris render-target version fields not found ({}); the shader "
+                                + "pipeline will be fully rebuilt whenever VR targets are recreated",
+                        t.toString());
+            }
+            return targetVersionStampAvailable;
+        }
+    }
+
+    public static void stampTargetVersions(@NotNull RenderTarget target) {
+        if (!isTargetVersionStampAvailable()) {
+            return;
+        }
+        try {
+            int stamp = ++targetVersionGeneration * TARGET_VERSION_STRIDE;
+            depthBufferVersionField.setInt(target, stamp);
+            colorBufferVersionField.setInt(target, stamp);
+        } catch (Throwable t) {
+            targetVersionStampAvailable = false;
+            LoggerUtils.getLogger().warn(
+                    "Visor: failed to stamp Iris render-target versions; the shader pipeline "
+                            + "will be fully rebuilt whenever VR targets are recreated.", t);
+        }
     }
 
     public static void bumpSodiumReloadCounter(Object pipelineManager) {
@@ -133,13 +186,41 @@ public final class IrisCompatHelper {
             return;
         }
         try {
-            ShadersHelper.setBridge(new ReflectiveIrisBridge());
+            ShaderCompatHelper.setBridge(new ReflectiveIrisBridge());
             LoggerUtils.getLogger().info("Visor: Iris VR bridge bound ({}).",
                     ModLoader.get().isModLoaded(OCULUS_MOD_ID) ? "Oculus" : "Iris");
         } catch (Throwable t) {
             LoggerUtils.getLogger().error("Visor: failed to bind Iris VR bridge; shaders will stay inactive.", t);
         }
+        //? if >=1.21.5 {
+        skipFormatExtension();
+        //?}
     }
+
+    //? if >=1.21.5 {
+    private static void skipFormatExtension() {
+        try {
+            @SuppressWarnings("unchecked")
+            ThreadLocal<Boolean> skipExtension = (ThreadLocal<Boolean>) Class
+                    .forName("net.irisshaders.iris.vertices.ImmediateState")
+                    .getField("skipExtension")
+                    .get(null);
+            McVertexBuilder.setBuilderGuard(factory -> {
+                Boolean previous = skipExtension.get();
+                skipExtension.set(true);
+                try {
+                    return factory.get();
+                } finally {
+                    skipExtension.set(previous);
+                }
+            });
+            LoggerUtils.getLogger().info("Visor: Iris vertex format extension disabled for Visor meshes");
+        } catch (Throwable t) {
+            LoggerUtils.getLogger().warn("Visor: could not map Iris' ImmediateState.skipExtension; "
+                    + "Iris may extend the vertex formats of Visor meshes", t);
+        }
+    }
+    //?}
 
     private static final class ReflectiveIrisBridge implements IrisVRBridge {
         private boolean initialized;
@@ -230,7 +311,7 @@ public final class IrisCompatHelper {
 
         @Override
         public int getShaderLightValue() {
-            return isActive() ? 16 : 8;
+            return isActive() ? 15 : 8;
         }
 
         @Override
@@ -282,9 +363,8 @@ public final class IrisCompatHelper {
                     return;
                 }
 
-                Minecraft mc = Minecraft.getInstance();
-                RenderTarget previousMain = mc.mainRenderTarget;
-                mc.mainRenderTarget = eye;
+                RenderTarget previousMain = McRenderTarget.mainTarget();
+                McRenderTarget.setMainTarget(eye);
                 try {
                     destroyPipeline.invoke(pipelineManager);
                     Object dimension = getCurrentDimension.invoke(null);
@@ -293,7 +373,7 @@ public final class IrisCompatHelper {
                     LoggerUtils.getLogger().info(
                             "Visor: rebuilt the Iris pipeline against the eye target");
                 } finally {
-                    mc.mainRenderTarget = previousMain;
+                    McRenderTarget.setMainTarget(previousMain);
                 }
             } catch (Throwable t) {
                 LoggerUtils.printError(t);
@@ -328,6 +408,14 @@ public final class IrisCompatHelper {
                 lastBuiltEyeHeight = eyeRenderHeight;
                 knownGoodPipeline = null;
             }
+            if (!IrisCompatHelper.isTargetVersionStampAvailable()) {
+                IrisCompatHelper.requestPipelineReload();
+            }
+        }
+
+        @Override
+        public void onRenderTargetCreated(RenderTarget target) {
+            IrisCompatHelper.stampTargetVersions(target);
         }
 
         @Override

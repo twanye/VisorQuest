@@ -1,5 +1,6 @@
 package org.vmstudio.visor.core.client.gui.overlays.builtin.settings.widgets.identity;
 
+import org.vmstudio.visor.api.compatibility.mcversion.gui.McGuiUtils;
 import lombok.Getter;
 import lombok.Setter;
 import org.vmstudio.visor.api.client.gui.helpers.GuiHelper;
@@ -9,15 +10,15 @@ import org.vmstudio.visor.api.client.gui.widgets.EditBoxImaged;
 import org.vmstudio.visor.api.client.gui.widgets.info.WidgetInfoEditBox;
 import org.vmstudio.visor.api.client.gui.widgets.sets.WidgetSet;
 import org.vmstudio.visor.api.common.addon.VisorAddon;
+import org.vmstudio.visor.api.compatibility.mcversion.McVersionUtils;
 import org.vmstudio.visor.core.client.gui.overlays.builtin.settings.VROverlaySettings;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.Renderable;
 import net.minecraft.client.gui.components.Tooltip;
 import net.minecraft.client.gui.components.events.GuiEventListener;
 import net.minecraft.client.gui.narration.NarratableEntry;
 import net.minecraft.network.chat.Component;
-import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.packs.resources.ResourceManager;
 import org.jetbrains.annotations.NotNull;
 
@@ -81,7 +82,7 @@ public class SetupIconWidgetSet implements WidgetSet {
     }
 
     @Override
-    public void onPreRender(@NotNull GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTicks) {
+    public void onPreRender(@NotNull GuiGraphicsExtractor guiGraphics, int mouseX, int mouseY, float partialTicks) {
         boolean iconUpdate = false;
         try {
             if(preIcon != null){
@@ -137,7 +138,7 @@ public class SetupIconWidgetSet implements WidgetSet {
 
     @Override
     public void onTick() {
-        editorTexturePath.tick();
+        McGuiUtils.tickEditBox(editorTexturePath);
     }
 
     public void setIconPath(String path){
@@ -159,7 +160,7 @@ public class SetupIconWidgetSet implements WidgetSet {
                 return;
             }
 
-            var resourceLoc = new ResourceLocation(path);
+            var resourceLoc = McVersionUtils.newResourceLoc(path);
 
 
             var resource = resourceManager.getResource(resourceLoc);

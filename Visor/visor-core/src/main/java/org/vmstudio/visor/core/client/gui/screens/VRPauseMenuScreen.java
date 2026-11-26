@@ -1,20 +1,26 @@
 package org.vmstudio.visor.core.client.gui.screens;
 
-import net.minecraft.client.gui.GuiGraphics;
+import org.vmstudio.visor.api.compatibility.mcversion.McEntity;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.*;
+//? if >=1.21.9 {
+import net.minecraft.client.gui.components.debug.DebugScreenEntries;
+//?}
+import org.vmstudio.visor.api.compatibility.mcversion.McVersionClientUtils;
+import org.vmstudio.visor.api.compatibility.mcversion.gui.McScreen;
+import org.vmstudio.visor.api.compatibility.mcversion.gui.McGuiUtils;
 import net.minecraft.client.gui.screens.inventory.InventoryScreen;
 import net.minecraft.network.chat.Component;
 import org.vmstudio.visor.core.client.ClientContext;
 import org.vmstudio.visor.core.client.gui.screens.settings.VRSettingsScreen;
-import org.vmstudio.visor.core.client.settings.VRClientSettings;
 import org.vmstudio.visor.core.client.tasks.types.TaskHotBar;
 import org.vmstudio.visor.core.client.utils.ClientUtils;
 
 import java.util.ArrayList;
 import java.util.List;
 
-public class VRPauseMenuScreen extends Screen {
+public class VRPauseMenuScreen extends McScreen {
     private static final Component RETURN_TO_MENU = Component.translatable("menu.returnToMenu");
     private static final Component DISCONNECT = Component.translatable("menu.disconnect");
 
@@ -44,6 +50,7 @@ public class VRPauseMenuScreen extends Screen {
     }
 
     private Tab currentTab = Tab.MAIN;
+    private Button measureHeightButton;
 
     private final List<int[]> sectionHeaderPos = new ArrayList<>(); // {x, y}
     private final List<String> sectionHeaderTexts = new ArrayList<>();
@@ -56,7 +63,8 @@ public class VRPauseMenuScreen extends Screen {
     @Override
     protected void init() {
         TaskHotBar.setResetData(true);
-        boolean hasPerms = this.minecraft.player != null && this.minecraft.player.hasPermissions(2);
+        measureHeightButton = null;
+        boolean hasPerms = this.minecraft.player != null && McEntity.hasPermissions(this.minecraft.player, 2);
 
         if (this.currentTab == Tab.COMMANDS && !hasPerms) {
             this.currentTab = Tab.MAIN;
@@ -105,11 +113,9 @@ public class VRPauseMenuScreen extends Screen {
         switch (this.currentTab) {
             case MAIN -> {
                 addRenderableWidget(makeHalfBtn(Component.translatable("visor.screen.pause_menu.button.inventory").getString(), left, y,
-                        b -> this.minecraft.setScreen(new InventoryScreen(this.minecraft.player))));
-                addRenderableWidget(makeHalfBtn(Component.translatable("visor.screen.pause_menu.button.calibrate_height").getString(), right, y, b -> {
-                    VRClientSettings.calibrateHeight();
-                    ClientContext.settingsManager.saveOptions();
-                }));
+                        b -> McVersionClientUtils.setScreen(new InventoryScreen(this.minecraft.player))));
+                measureHeightButton = addRenderableWidget(makeHalfBtn(measureHeightLabel(), right, y,
+                        b -> ClientContext.localPlayer.getHeightTracker().startMeasure()));
                 y += BTN_H + GAP;
 
                 addRenderableWidget(makeHalfBtn(Component.translatable("visor.screen.pause_menu.button.keyboard").getString(), left, y, b ->{
@@ -119,13 +125,13 @@ public class VRPauseMenuScreen extends Screen {
                                 })
                 );
                 addRenderableWidget(makeHalfBtn(Component.translatable("visor.screen.pause_menu.button.chat").getString(), right, y,
-                        b -> this.minecraft.setScreen(new ChatScreen(""))));
+                        b -> McVersionClientUtils.setScreen(McVersionClientUtils.chatScreen(""))));
                 y += BTN_H + GAP;
 
                 addRenderableWidget(makeHalfBtn(Component.translatable("visor.screen.pause_menu.button.pause_menu").getString(), left, y,
-                        b -> this.minecraft.setScreen(new PauseScreen(true))));
+                        b -> McVersionClientUtils.setScreen(new PauseScreen(true))));
                 addRenderableWidget(makeHalfBtn(Component.translatable("visor.screen.pause_menu.button.vr_settings").getString(), right, y,
-                        b -> this.minecraft.setScreen(new VRSettingsScreen(this))));
+                        b -> McVersionClientUtils.setScreen(new VRSettingsScreen(this))));
                 y += BTN_H + GAP;
             }
 
@@ -185,18 +191,30 @@ public class VRPauseMenuScreen extends Screen {
             }
 
             case TOOLS -> {
-                addRenderableWidget(makeHalfBtn(Component.translatable("visor.screen.pause_menu.button.hitboxes").getString(), left, y, b -> {
+                //? if >=1.21.9 {
+                addRenderableWidget(makeHalfBtn(Component.translatable("visor.screen.pause_menu.button.hitboxes").getString(), left, y,
+                        b -> this.minecraft.debugEntries.toggleStatus(DebugScreenEntries.ENTITY_HITBOXES)));
+                addRenderableWidget(makeHalfBtn(Component.translatable("visor.screen.pause_menu.button.chunk_borders").getString(), right, y,
+                        b -> this.minecraft.debugEntries.toggleStatus(DebugScreenEntries.CHUNK_BORDERS)));
+                //?} else {
+                /*addRenderableWidget(makeHalfBtn(Component.translatable("visor.screen.pause_menu.button.hitboxes").getString(), left, y, b -> {
                     boolean cur = this.minecraft.getEntityRenderDispatcher().shouldRenderHitBoxes();
                     this.minecraft.getEntityRenderDispatcher().setRenderHitBoxes(!cur);
                 }));
                 addRenderableWidget(makeHalfBtn(Component.translatable("visor.screen.pause_menu.button.chunk_borders").getString(), right, y,
                         b -> this.minecraft.debugRenderer.switchRenderChunkborder()));
+                *///?}
                 y += BTN_H + GAP;
 
+                //? if >=26.2 {
                 addRenderableWidget(makeHalfBtn(Component.translatable("visor.screen.pause_menu.button.reload_chunks").getString(), left, y,
+                        b -> this.minecraft.levelExtractor.allChanged()));
+                //?} else {
+                /*addRenderableWidget(makeHalfBtn(Component.translatable("visor.screen.pause_menu.button.reload_chunks").getString(), left, y,
                         b -> this.minecraft.levelRenderer.allChanged()));
+                *///?}
                 addRenderableWidget(makeHalfBtn(Component.translatable("visor.screen.pause_menu.button.clear_chat").getString(), right, y,
-                        b -> this.minecraft.gui.getChat().clearMessages(false)));
+                        b -> McVersionClientUtils.chat().clearMessages(false)));
                 y += BTN_H + GAP;
             }
         }
@@ -205,13 +223,11 @@ public class VRPauseMenuScreen extends Screen {
     }
 
     @Override
-    public void render(GuiGraphics gfx, int mouseX, int mouseY, float delta) {
-        super.renderBackground(gfx);
-
+    protected void renderContents(GuiGraphicsExtractor gfx, int mouseX, int mouseY, float delta) {
         int cx = this.width / 2;
         int startY = this.height / 2 - totalColumnHeight() / 2;
 
-        gfx.drawCenteredString(this.font, Component.translatable("visor.screen.pause_menu.title"), cx, startY, 0xFFFFFFFF);
+        McGuiUtils.drawCenteredString(gfx, this.font, Component.translatable("visor.screen.pause_menu.title"), cx, startY, 0xFFFFFFFF);
 
         int dividerColor = 0xFF555555;
 
@@ -233,11 +249,11 @@ public class VRPauseMenuScreen extends Screen {
                 gfx.fill(sx, lineY, sx + 18, lineY + 1, dividerColor);
                 gfx.fill(sx + 22 + lblW, lineY, sx + COLUMN_W, lineY + 1, dividerColor);
 
-                gfx.drawString(this.font, sectionHeaderTexts.get(i), sx + 20, sy, 0xFF6AE3EA, false);
+                McGuiUtils.drawString(gfx, this.font, sectionHeaderTexts.get(i), sx + 20, sy, 0xFF6AE3EA, false);
             }
         }
 
-        super.render(gfx, mouseX, mouseY, delta);
+        super.renderContents(gfx, mouseX, mouseY, delta);
     }
 
     private int totalColumnHeight() {
@@ -252,6 +268,24 @@ public class VRPauseMenuScreen extends Screen {
     private void registerSection(int x, int y, String text) {
         sectionHeaderPos.add(new int[]{x, y});
         sectionHeaderTexts.add(text);
+    }
+
+    @Override
+    public void tick() {
+        if (measureHeightButton != null) {
+            measureHeightButton.setMessage(Component.literal(measureHeightLabel()));
+        }
+    }
+
+    private static String measureHeightLabel() {
+        var tracker = ClientContext.localPlayer.getHeightTracker();
+        if (tracker.isMeasuring()) {
+            return Component.translatable(
+                    "visor.messages.height_measure_countdown",
+                    tracker.getMeasureSecondsLeft()
+            ).getString();
+        }
+        return Component.translatable("visor.screen.pause_menu.button.measure_height").getString();
     }
 
     private Button makeHalfBtn(String label, int x, int y, Button.OnPress action) {

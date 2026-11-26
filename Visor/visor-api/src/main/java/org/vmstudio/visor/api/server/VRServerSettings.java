@@ -7,48 +7,115 @@ import net.fabricmc.api.Environment;
 
 
 public class VRServerSettings {
-    @Getter
-    private static boolean serverDebug = false;
-    @Getter
-    private static boolean vrOnly = false;
+    @Getter @SendSettingToClient
+    private static boolean serverDebug;
+    @Getter @SendSettingToClient
+    private static boolean vrOnly;
+
+    @Getter @SendSettingToClient
+    @VRServerOptionField(key = "two_handed")
+    private static boolean twoHandedVR;
+    @Getter @SendSettingToClient
+    @VRServerOptionField(key = "better_swinging")
+    private static boolean betterSwinging;
+
+    @Getter @SendSettingToClient
+    @VRServerOptionField(key = "roomscale_shield")
+    @ConfigComment("Block with a raised shield without holding use")
+    private static boolean roomscaleShieldBlocking;
+
+    @Getter @SendSettingToClient
+    @VRServerOptionField(key = "attacks_while_blocking")
+    private static boolean attacksWhileBlocking;
 
     @Getter
-    private static boolean twoHandedVR = true;
-    @Getter
-    private static boolean betterSwinging = true;
-
-    @Getter
-    private static long swingingRepairDelay = 400;
-
-    @Getter
-    private static boolean roomCrawlingSupported = true;
-
-    @Getter
-    private static boolean roomClimbingSupported = true;
-
-    @Getter
-    private static boolean pvpVRvsVanilla = true;
-    @Getter
-    private static boolean pvpVRvsVR = true;
-    @Getter
-    private static boolean notifyPvpBlocked = false;
-
-    @Getter
-    private static double creeperSwellDistance = 1.75;
-
-    @Getter
-    private static SupportedMovement supportedMovement = SupportedMovement.BOTH;
+    private static long swingingRepairDelay;
 
 
     @Getter
-    protected static int teleportUpLimit = 1;
-    @Getter
-    protected static int teleportDownLimit = 4;
-    @Getter
-    protected static int teleportForwardLimit = 16;
+    private static float swingingMiningSpeed;
+
+    @Getter @SendSettingToClient
+    @VRServerOptionField(key = "room_crawling")
+    private static boolean roomCrawlingSupported;
+
+    @Getter @SendSettingToClient
+    @VRServerOptionField(key = "room_climbing")
+    private static boolean roomClimbingSupported;
+
+    @Getter @SendSettingToClient
+    private static boolean pvpVRvsVanilla;
+    @Getter @SendSettingToClient
+    private static boolean pvpVRvsVR;
+    @Getter @SendSettingToClient
+    private static boolean notifyPvpBlocked;
+
+    @Getter @SendSettingToClient
+    private static double creeperSwellDistance;
+
+    @Getter @SendSettingToClient
+    @VRServerOptionField(key = "supported_movement")
+    @ConfigComment("Movement allowed for VR players: CONTROLLER, TELEPORT or BOTH")
+    private static SupportedMovement supportedMovement;
+
+
+    @Getter @SendSettingToClient
+    @ConfigComment("Teleport distance limits in blocks")
+    protected static int teleportUpLimit;
+    @Getter @SendSettingToClient
+    protected static int teleportDownLimit;
+    @Getter @SendSettingToClient
+    protected static int teleportForwardLimit;
+
+    @Getter @SendSettingToClient
+    @VRServerOptionField(key = "supported_height_mode")
+    @ConfigComment("Height mode allowed for VR players: MATCH_MODEL (player model scale not modified), REAL_SIZE (player model scale modified) or BOTH")
+    private static SupportedHeightMode supportedHeightMode;
+
+    @Getter @SendSettingToClient
+    @ConfigComment({"[TRACKERS] - Potentially, more network consumption when enabled",})
+    private static boolean bodyTrackersSupported;
+
+    @Getter @SendSettingToClient
+    private static boolean handTrackersSupported;
 
     @Getter
-    private static boolean trackersSupported = true;
+    @ConfigComment("Send body tracker data to other players (if enabled, players with Visor mod and within VR player visibility range receive such data)")
+    private static boolean bodyTrackersSendToOthers;
+
+    @Getter
+    @ConfigComment("Send hand tracking data to other players (if enabled, players with Visor mod and within VR player visibility range receive such data)")
+    private static boolean handTrackersSendToOthers;
+
+    static {
+        resetToDefaults();
+    }
+
+    public static void resetToDefaults(){
+        serverDebug = false;
+        vrOnly = false;
+        twoHandedVR = true;
+        betterSwinging = true;
+        roomscaleShieldBlocking = true;
+        attacksWhileBlocking = true;
+        swingingRepairDelay = 400;
+        swingingMiningSpeed = 1.5f;
+        roomCrawlingSupported = true;
+        roomClimbingSupported = true;
+        pvpVRvsVanilla = true;
+        pvpVRvsVR = true;
+        notifyPvpBlocked = false;
+        creeperSwellDistance = 1.75;
+        supportedMovement = SupportedMovement.BOTH;
+        teleportUpLimit = 1;
+        teleportDownLimit = 4;
+        teleportForwardLimit = 16;
+        supportedHeightMode = SupportedHeightMode.BOTH;
+        bodyTrackersSupported = true;
+        handTrackersSupported = true;
+        bodyTrackersSendToOthers = true;
+        handTrackersSendToOthers = true;
+    }
 
 
     /**
@@ -71,10 +138,12 @@ public class VRServerSettings {
         notifyPvpBlocked = false;
         twoHandedVR = false;
         betterSwinging = false;
+        roomscaleShieldBlocking = false;
+        attacksWhileBlocking = true;
         creeperSwellDistance = 1.75;
         supportedMovement = SupportedMovement.CONTROLLER;
-        trackersSupported = false;
-
-
+        supportedHeightMode = SupportedHeightMode.MATCH_MODEL;
+        bodyTrackersSupported = false;
+        handTrackersSupported = false;
     }
 }

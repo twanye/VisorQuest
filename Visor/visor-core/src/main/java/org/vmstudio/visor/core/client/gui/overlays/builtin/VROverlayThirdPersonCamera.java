@@ -11,12 +11,13 @@ import org.vmstudio.visor.api.client.render.VRRenderPass;
 import org.vmstudio.visor.api.common.HandType;
 import org.vmstudio.visor.api.common.addon.VisorAddon;
 import org.vmstudio.visor.api.common.addon.component.ComponentPriority;
+import org.vmstudio.visor.api.compatibility.mcversion.McVersionUtils;
 import org.vmstudio.visor.core.client.ClientContext;
 import org.vmstudio.visor.core.client.render.VRRenderState;
-import org.vmstudio.visor.core.client.settings.VRClientSettings;
-import net.minecraft.client.gui.GuiGraphics;
+import org.vmstudio.visor.api.client.settings.VRClientSettings;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.network.chat.Component;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 import net.minecraft.util.Mth;
 import org.jetbrains.annotations.NotNull;
 import org.joml.Matrix4f;
@@ -28,7 +29,7 @@ public class VROverlayThirdPersonCamera extends VROverlayScreen {
     public static final String ID = "third_person_camera";
 
     private final GuiTexture cameraTexture = new GuiTexture(
-            new ResourceLocation(
+            McVersionUtils.newResourceLoc(
                     VisorAPI.MOD_ID, "textures/gui/overlays/camera.png"
             )
     );
@@ -64,7 +65,7 @@ public class VROverlayThirdPersonCamera extends VROverlayScreen {
 
 
     @Override
-    protected void onRender(GuiGraphics guiGraphics,
+    protected void onRender(GuiGraphicsExtractor guiGraphics,
                             int mouseX, int mouseY,
                             float partialTicks) {
 
@@ -139,15 +140,17 @@ public class VROverlayThirdPersonCamera extends VROverlayScreen {
 
         VRClientSettings.updateThirdPersonCamera(
                 newPosition,
-                newRotation,
-                save
+                newRotation
         );
+        if(save) {
+            ClientContext.settingsManager.saveOptions();
+        }
     }
 
     @Override
-    public boolean mouseScrolled(double mouseX,
-                                 double mouseY,
-                                 double scrollDelta) {
+    protected boolean onMouseScrolled(double mouseX,
+                                      double mouseY,
+                                      double scrollDelta) {
         if(this.changingPosition){
             offsetZWaiting += (float) -scrollDelta * 0.01f;
         }
@@ -155,7 +158,7 @@ public class VROverlayThirdPersonCamera extends VROverlayScreen {
     }
 
     @Override
-    public boolean mouseClicked(double mouseX, double mouseY, int buttonType) {
+    protected boolean onMouseClicked(double mouseX, double mouseY, int buttonType) {
         if(this.changingPosition){
             setChangingPosition(false);
         }

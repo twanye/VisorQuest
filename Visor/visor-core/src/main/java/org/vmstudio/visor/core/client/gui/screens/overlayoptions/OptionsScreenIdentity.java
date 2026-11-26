@@ -4,7 +4,7 @@ import lombok.Getter;
 import org.vmstudio.visor.api.client.gui.overlays.options.OptionsScreen;
 import org.vmstudio.visor.api.client.gui.overlays.options.types.OverlayOptionsIdentity;
 import org.vmstudio.visor.core.client.gui.overlays.builtin.settings.widgets.identity.SetupIdentityWidgetSet;
-import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.function.Consumer;
@@ -23,7 +23,7 @@ public class OptionsScreenIdentity extends OptionsScreen<OverlayOptionsIdentity>
         widgetSet = new SetupIdentityWidgetSet(
                 (width - 128) /2,
                 (height - 256) /2 - 20,
-                false
+                null
         );
         widgetSet.initWidgets();
 
@@ -51,7 +51,7 @@ public class OptionsScreenIdentity extends OptionsScreen<OverlayOptionsIdentity>
     }
 
     @Override
-    public void onRender(GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTick) {
+    public void onRender(GuiGraphicsExtractor guiGraphics, int mouseX, int mouseY, float partialTick) {
         widgetSet.onPreRender(guiGraphics, mouseX, mouseY,partialTick);
     }
 

@@ -10,6 +10,7 @@ import org.vmstudio.visor.api.common.addon.VisorAddon;
 import org.jetbrains.annotations.NotNull;
 import org.vmstudio.visor.core.client.input.actions.*;
 import org.vmstudio.visor.core.client.input.actions.game.*;
+import org.vmstudio.visor.api.compatibility.mcversion.McVersionClientUtils;
 
 import java.util.List;
 import java.util.Map;
@@ -40,10 +41,12 @@ public class GameActionSet extends VRActionSet {
 
                 VRActions.createShift(this),
                 VRActions.createMenu(this),
+                VRActions.createScreenshot(this),
 
                 new GameActionMovement(this),
                 new GameActionRotate(this),
                 new GameActionJump(this),
+                new GameActionSprint(this),
 
                 new GameActionHotBar(this, HandType.MAIN),
                 new GameActionHotBar(this, HandType.OFFHAND)
@@ -57,7 +60,7 @@ public class GameActionSet extends VRActionSet {
 
     @Override
     public boolean canActivate() {
-        return MC.screen == null && MC.player != null;
+        return McVersionClientUtils.screen() == null && MC.player != null;
     }
 
     @Override
