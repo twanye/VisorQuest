@@ -96,6 +96,8 @@ jobs:
           targetPlatform: Android
           androidExportType: androidPackage
           buildName: VisorQuest
+          # The AAR swap modifies a tracked file, so the tree is dirty on purpose.
+          allowDirtyBuild: true
       - uses: actions/upload-artifact@v4
         with:
           name: visorquest-apk-${{ github.sha }}
