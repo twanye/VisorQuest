@@ -75,6 +75,8 @@ public class MinecraftInstances {
         public String assetIndex;
         public String assetsDir;
         public String mainClass;
+        // Ported from QuestCraftPlusPlus/Pojlib QuestCraft-6.0.1
+        public String extraNatives;
         public ProjectInfo[] extProjects;
         public boolean defaultMods;
 

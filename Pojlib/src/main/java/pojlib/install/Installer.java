@@ -6,12 +6,15 @@ import com.google.gson.Gson;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 
+import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.commons.io.FileUtils;
 
 import pojlib.APIHandler;
 import pojlib.util.download.DownloadManager;
 import pojlib.util.download.DownloadUtils;
 import pojlib.util.json.MinecraftInstances;
+import pojlib.install.VisorVersionTable.Artifact;
+import pojlib.install.VisorVersionTable.VersionEntry;
 import pojlib.util.*;
 
 import java.io.File;
@@ -35,9 +38,6 @@ import pojlib.util.json.ProjectInfo;
 //This class reads data from a game version json and downloads its contents.
 //This works for the base game as well as mod loaders
 public class Installer {
-
-    private static final String IMMEDIATELY_FAST_URL = "https://cdn.modrinth.com/data/5ZwdcRci/versions/iwYUrQJO/ImmediatelyFast-Fabric-1.5.5%2B1.20.4.jar";
-    private static final String IMMEDIATELY_FAST_SHA1 = "9f0110b60dc752ca093f2fc10a72d221b6dc8ac3";
 
     private static final String[] REQUIRED_JRE_FILES = {
             "bin/java",
@@ -264,14 +264,19 @@ public class Installer {
     }
 
     public static void installVisor(Activity activity, MinecraftInstances.Instance instance) throws IOException {
-        if (!instance.versionName.equals("1.20.1")) {
-            throw new IOException("Visor QuestCraft only supports Minecraft 1.20.1");
+        VersionEntry version = VisorVersionTable.find(activity, instance.versionName);
+        if (version == null) {
+            throw new IOException("Visor QuestCraft does not support Minecraft " + instance.versionName);
         }
 
         applyQuestDefaults(instance);
         File mods = new File(instance.gameDir, "mods");
         mods.mkdirs();
-        installImmediatelyFast(mods);
+        for (Artifact artifact : version.downloadedMods) {
+            installDownloadedMod(mods, artifact);
+        }
+
+        // Preserve the original Vivecraft-to-Visor cleanup behaviour.
         File[] existing = mods.listFiles();
         if (existing != null) {
             for (File file : existing) {
@@ -290,34 +295,12 @@ public class Installer {
             }
         }
 
-        FileUtils.writeByteArrayToFile(
-                new File(mods, "Visor.jar"),
-                FileUtil.loadFromAssetToByte(activity, "mods/Visor.jar")
-        );
-        FileUtils.writeByteArrayToFile(
-                new File(mods, "VisorEssentials.jar"),
-                FileUtil.loadFromAssetToByte(activity, "mods/VisorEssentials.jar")
-        );
-        FileUtils.writeByteArrayToFile(
-                new File(mods, "MoreCulling.jar"),
-                FileUtil.loadFromAssetToByte(activity, "mods/MoreCulling.jar")
-        );
-        FileUtils.writeByteArrayToFile(
-                new File(mods, "Noisium.jar"),
-                FileUtil.loadFromAssetToByte(activity, "mods/Noisium.jar")
-        );
-        FileUtils.writeByteArrayToFile(
-                new File(mods, "BadOptimizations.jar"),
-                FileUtil.loadFromAssetToByte(activity, "mods/BadOptimizations.jar")
-        );
-        FileUtils.writeByteArrayToFile(
-                new File(mods, "Chunky.jar"),
-                FileUtil.loadFromAssetToByte(activity, "mods/Chunky.jar")
-        );
-        FileUtils.writeByteArrayToFile(
-                new File(mods, "C2ME.jar"),
-                FileUtil.loadFromAssetToByte(activity, "mods/C2ME.jar")
-        );
+        writeBundledArtifact(activity, mods, version.visor);
+        writeBundledArtifact(activity, mods, version.visorEssentials);
+        for (Artifact artifact : version.bundledMods) {
+            writeBundledArtifact(activity, mods, artifact);
+        }
+
         ArrayList<ProjectInfo> projects = new ArrayList<>();
         if (instance.extProjects != null) {
             projects.addAll(Arrays.asList(instance.extProjects));
@@ -332,54 +315,54 @@ public class Installer {
                 || project.slug.equalsIgnoreCase("C2ME")
                 || project.slug.equalsIgnoreCase("Voxy"));
 
-        ProjectInfo visor = new ProjectInfo();
-        visor.slug = "Visor";
-        visor.version = "0.4.0+questcraft";
-        visor.download_link = "bundled://visor";
-        projects.add(visor);
-
-        ProjectInfo essentials = new ProjectInfo();
-        essentials.slug = "VisorEssentials";
-        essentials.version = "0.4.0";
-        essentials.download_link = "bundled://visor-essentials";
-        projects.add(essentials);
-
-        ProjectInfo moreCulling = new ProjectInfo();
-        moreCulling.slug = "MoreCulling";
-        moreCulling.version = "1.20.1-0.24.5";
-        moreCulling.download_link = "bundled://more-culling";
-        moreCulling.type = "mod";
-        projects.add(moreCulling);
-
-        ProjectInfo noisium = new ProjectInfo();
-        noisium.slug = "Noisium";
-        noisium.version = "2.3.0+mc1.20-1.20.1";
-        noisium.download_link = "bundled://noisium";
-        noisium.type = "mod";
-        projects.add(noisium);
-
-        ProjectInfo badOptimizations = new ProjectInfo();
-        badOptimizations.slug = "BadOptimizations";
-        badOptimizations.version = "2.4.1";
-        badOptimizations.download_link = "bundled://bad-optimizations";
-        badOptimizations.type = "mod";
-        projects.add(badOptimizations);
-
-        ProjectInfo chunky = new ProjectInfo();
-        chunky.slug = "Chunky";
-        chunky.version = "1.3.146";
-        chunky.download_link = "bundled://chunky";
-        chunky.type = "mod";
-        projects.add(chunky);
-
-        ProjectInfo c2me = new ProjectInfo();
-        c2me.slug = "C2ME";
-        c2me.version = "0.2.0+alpha.11.18+1.20.1";
-        c2me.download_link = "bundled://c2me";
-        c2me.type = "mod";
-        projects.add(c2me);
-
+        projects.add(toProjectInfo(version.visor));
+        projects.add(toProjectInfo(version.visorEssentials));
+        for (Artifact artifact : version.bundledMods) {
+            projects.add(toProjectInfo(artifact));
+        }
         instance.extProjects = projects.toArray(new ProjectInfo[0]);
+    }
+
+    private static void writeBundledArtifact(Activity activity, File mods, Artifact artifact) throws IOException {
+        byte[] bytes = FileUtil.loadFromAssetToByte(activity, artifact.assetPath);
+        if (bytes == null) {
+            throw new IOException("Unable to read bundled mod asset: " + artifact.assetPath);
+        }
+        String actualSha1 = DigestUtils.sha1Hex(bytes);
+        if (!artifact.sha1.equalsIgnoreCase(actualSha1)) {
+            throw new IOException("Bundled mod SHA-1 mismatch for " + artifact.artifactName);
+        }
+        FileUtils.writeByteArrayToFile(new File(mods, artifact.artifactName), bytes);
+    }
+
+    private static void installDownloadedMod(File mods, Artifact artifact) throws IOException {
+        File target = new File(mods, artifact.artifactName);
+        if (target.isFile() && DownloadUtils.compareSHA1(target, artifact.sha1)) {
+            return;
+        }
+
+        File update = new File(mods, artifact.artifactName + ".update");
+        FileUtils.deleteQuietly(update);
+        try {
+            DownloadUtils.downloadFile(artifact.url, update, artifact.size);
+            if (!DownloadUtils.compareSHA1(update, artifact.sha1)) {
+                throw new IOException("Downloaded mod SHA-1 mismatch for " + artifact.artifactName);
+            }
+            Files.move(update.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING);
+        } finally {
+            FileUtils.deleteQuietly(update);
+        }
+    }
+
+    private static ProjectInfo toProjectInfo(Artifact artifact) {
+        ProjectInfo project = new ProjectInfo();
+        project.slug = artifact.slug;
+        project.version = artifact.version;
+        project.download_link = artifact.downloadLink;
+        if (artifact.type != null && !artifact.type.trim().isEmpty()) {
+            project.type = artifact.type;
+        }
+        return project;
     }
 
     private static void applyQuestDefaults(MinecraftInstances.Instance instance) throws IOException {
@@ -402,25 +385,6 @@ public class Installer {
             Files.write(options.toPath(), lines, StandardCharsets.UTF_8);
         }
         marker.createNewFile();
-    }
-
-    private static void installImmediatelyFast(File mods) throws IOException {
-        File target = new File(mods, "ImmediatelyFast.jar");
-        if (target.isFile() && DownloadUtils.compareSHA1(target, IMMEDIATELY_FAST_SHA1)) {
-            return;
-        }
-
-        File update = new File(mods, "ImmediatelyFast.jar.update");
-        FileUtils.deleteQuietly(update);
-        try {
-            DownloadUtils.downloadFile(IMMEDIATELY_FAST_URL, update, 348818);
-            if (!DownloadUtils.compareSHA1(update, IMMEDIATELY_FAST_SHA1)) {
-                throw new IOException("ImmediatelyFast download hash mismatch");
-            }
-            Files.move(update.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING);
-        } finally {
-            FileUtils.deleteQuietly(update);
-        }
     }
 
     public static class AsyncDownload implements Runnable {
