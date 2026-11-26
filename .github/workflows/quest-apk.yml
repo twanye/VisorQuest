@@ -1,0 +1,103 @@
+# Builds a Quest APK: Pojlib AAR (from pojlib_ref) swapped into the Unity launcher (this branch), built with GameCI.
+# Added by Hark for VisorQuest. A green run means it built, not that it works on a Quest.
+# Needs repo secrets UNITY_LICENSE (.ulf contents), UNITY_EMAIL, UNITY_PASSWORD.
+name: Build Quest APK
+
+on:
+  workflow_dispatch:
+    inputs:
+      pojlib_ref:
+        description: 'Branch or SHA holding Pojlib/ to build into the APK'
+        default: 'chatgpt/pojlib-version-table'
+  push:
+    branches: [ 'hark/ci-quest-apk' ]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: quest-apk-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  POJLIB_REF: ${{ inputs.pojlib_ref || 'chatgpt/pojlib-version-table' }}
+
+jobs:
+  pojlib:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.POJLIB_REF }}
+          lfs: true
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: |
+            8
+            17
+      - name: Android SDK parts
+        run: |
+          SDKM="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKM" --licenses > /dev/null || true
+          "$SDKM" --install "ndk;26.1.10909125" "build-tools;30.0.3" "platforms;android-34" > /dev/null
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Build Pojlib release AAR
+        working-directory: Pojlib
+        run: |
+          chmod +x ./gradlew
+          ./gradlew assembleRelease -Porg.gradle.java.installations.fromEnv=JAVA_HOME_8_X64,JAVA_HOME_17_X64
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pojlib-release-aar
+          path: Pojlib/build/outputs/aar/*release*.aar
+          if-no-files-found: error
+
+  apk:
+    needs: pojlib
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check Unity secrets
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+        run: |
+          for s in UNITY_LICENSE UNITY_EMAIL UNITY_PASSWORD; do
+            if [ -z "${!s}" ]; then echo "::error::Missing repo secret $s (Settings > Secrets and variables > Actions)"; exit 1; fi
+          done
+      - name: Free disk space (Unity Android image is large)
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: false
+          android: true
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v4
+        with:
+          name: pojlib-release-aar
+          path: /tmp/aar
+      - name: Swap in the new Pojlib AAR
+        run: |
+          f=$(ls /tmp/aar/*.aar | head -1)
+          echo "Using $f"
+          cp "$f" Assets/Plugins/Android/Pojlib-release.aar
+      - uses: actions/cache@v4
+        with:
+          path: Library
+          key: Library-Android-${{ hashFiles('Packages/packages-lock.json', 'ProjectSettings/ProjectVersion.txt') }}
+          restore-keys: Library-Android-
+      - name: Build APK
+        uses: game-ci/unity-builder@v4
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+        with:
+          targetPlatform: Android
+          androidExportType: androidPackage
+          buildName: VisorQuest
+      - uses: actions/upload-artifact@v4
+        with:
+          name: visorquest-apk-${{ github.sha }}
+          path: build/Android/*.apk
+          if-no-files-found: error
