@@ -9,6 +9,9 @@ on:
       pojlib_ref:
         description: 'Branch or SHA holding Pojlib/ to build into the APK'
         default: 'chatgpt/pojlib-version-table'
+      unity_ref:
+        description: 'Branch or SHA holding the Unity launcher (blank = the branch this runs on)'
+        default: ''
   push:
     branches: [ 'hark/ci-quest-apk' ]
 
@@ -21,6 +24,7 @@ concurrency:
 
 env:
   POJLIB_REF: ${{ inputs.pojlib_ref || 'chatgpt/pojlib-version-table' }}
+  UNITY_REF: ${{ inputs.unity_ref || github.ref }}
 
 jobs:
   pojlib:
@@ -72,6 +76,8 @@ jobs:
           tool-cache: false
           android: true
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.UNITY_REF }}
       - uses: actions/download-artifact@v4
         with:
           name: pojlib-release-aar
