@@ -16,7 +16,22 @@ It includes or builds on the third-party open-source components below. Each keep
 - Source: https://github.com/QuestCraftPlusPlus/Pojlib, via coah80's fork https://github.com/coah80/Pojlib (branch `QuestCraft-6.0.0`)
 - License: LGPL-3.0
 - Obligations: keep notices; keep library source available; users must be able to replace or relink the LGPL libraries.
-- [unverified] Check that no bundled native library is GPL-3.0 without an exception.
+- Pojlib bundles components under their own licenses (per Pojlib's README, branch `QuestCraft-6.0.0`):
+
+| Component | License |
+|---|---|
+| PojavLauncher (Pojlib base) | LGPL-3.0 |
+| **LightThinWrapper** (`libltw.so`, main OpenGL renderer) | **PolyForm Shield 1.0.0**, see below |
+| Android Support Libraries | Apache-2.0 |
+| OpenJDK runtime | GPL-2.0 with Classpath Exception |
+| LWJGL 3 | BSD-3-Clause |
+| LWJGLX (LWJGL2 compatibility layer) | unknown [unverified] |
+| Mesa 3D | MIT |
+| libepoxy | MIT |
+| bhook (exit code trapping) | MIT |
+| pro-grade (Java security manager) | Apache-2.0 |
+
+- **LightThinWrapper / PolyForm Shield:** source https://github.com/PojavLauncherTeam/BigTinyWrapper. PolyForm Shield is not an open-source license: it bars using the software to offer a product that competes with the licensor's. Pojlib's README says it must be removed from forks that break its terms. Keep its license text with the binary, and get Tucker's decision on whether VisorQuest's use is fine or needs the authors' OK [unverified].
 
 ### 3. Visor (`Visor/`)
 - Source: https://github.com/VisorModStudio/Visor, via coah80's fork https://github.com/coah80/Visor (branch `dev`, July 2026)
@@ -35,7 +50,7 @@ Pojlib installs these per instance from a version manifest at first launch. They
 
 ### 5. Visor and VisorEssentials release jars
 - Source: Modrinth (https://modrinth.com/mod/visor, https://modrinth.com/mod/visoressentials)
-- License: Visor MPL-2.0. VisorEssentials [unverified]: https://github.com/VisorModStudio/VisorEssentials has no license file GitHub can detect.
+- License: Visor MPL-2.0. VisorEssentials LGPL-3.0 (confirmed: `LICENCE.md` in https://github.com/VisorModStudio/VisorEssentials; it did not move to MPL-2.0 with Visor).
 
 ### 6. Fabric Loader, Fabric API and performance mods
 - License: per each mod's own listing. [unverified] Record in the version manifest.
