@@ -66,12 +66,21 @@ public class Installer {
     };
 
     public static synchronized void installJVM(Activity activity) throws IOException {
-        Logger.getInstance().appendToLog("Checking JRE");
+        installJVM(activity, RuntimeProfile.LEGACY);
+    }
+
+    /**
+     * Installs the JRE a version needs into files/runtimes/&lt;profile.jreDirName&gt;. The default
+     * runtimes/JRE is untouched by other profiles; 26.x uses runtimes/JRE-25 side by side.
+     */
+    public static synchronized void installJVM(Activity activity, RuntimeProfile profile) throws IOException {
+        String name = profile.jreDirName;
+        Logger.getInstance().appendToLog(RuntimeProfile.LEGACY_JRE_DIR.equals(name) ? "Checking JRE" : "Checking JRE " + name);
         File runtimes = new File(activity.getFilesDir(), "runtimes");
-        File jre = new File(runtimes, "JRE");
-        File installing = new File(runtimes, "JRE.installing");
-        File jreZip = new File(runtimes, "JRE.zip.download");
-        String jreURL = "https://github.com/QuestCraftPlusPlus/android-openjdk-build-multiarch/releases/latest/download/JRE.zip";
+        File jre = new File(runtimes, name);
+        File installing = new File(runtimes, name + ".installing");
+        File jreZip = new File(runtimes, name + ".zip.download");
+        String jreURL = profile.jreUrl;
 
         if (isJreValid(jre)) {
             Logger.getInstance().appendToLog("JRE installed");
@@ -84,8 +93,21 @@ public class Installer {
         FileUtils.deleteQuietly(jreZip);
 
         try {
-            DownloadUtils.downloadFile(jreURL, jreZip);
+            if (profile.jreSize > 0) {
+                DownloadUtils.downloadFile(jreURL, jreZip, profile.jreSize);
+            } else {
+                DownloadUtils.downloadFile(jreURL, jreZip);
+            }
             DownloadManager.reset();
+            if (profile.jreSha256 != null) {
+                String actual;
+                try (java.io.InputStream in = new java.io.FileInputStream(jreZip)) {
+                    actual = DigestUtils.sha256Hex(in);
+                }
+                if (!profile.jreSha256.equalsIgnoreCase(actual)) {
+                    throw new IOException("Downloaded JRE " + name + " SHA-256 mismatch");
+                }
+            }
             FileUtil.unzipArchiveChecked(jreZip.getPath(), installing.getPath());
             Files.copy(
                     Paths.get(activity.getApplicationInfo().nativeLibraryDir, "libawt_xawt.so"),
@@ -160,12 +182,17 @@ public class Installer {
     // Will only download library if it is missing, however it will overwrite if sha1 does not match the downloaded library
     // Returns the classpath of the downloaded libraries
     public static CompletableFuture<String> installLibraries(VersionInfo versionInfo, String gameDir) throws IOException {
+        return installLibraries(versionInfo, gameDir, RuntimeProfile.LEGACY);
+    }
+
+    public static CompletableFuture<String> installLibraries(VersionInfo versionInfo, String gameDir, RuntimeProfile profile) throws IOException {
         return CompletableFuture.supplyAsync(() -> {
             Logger.getInstance().appendToLog("Checking Libraries for: " + versionInfo.id);
             StringJoiner classpath = new StringJoiner(File.pathSeparator);
 
             for (VersionInfo.Library library : versionInfo.libraries) {
-                if (library.name.contains("lwjgl") || (library.name.contains("org.ow2.asm")) & !versionInfo.id.contains("fabric")) {
+                boolean keep = profile.lwjglVulkanClasses && isLwjglVulkanClasses(library.name);
+                if (!keep && (library.name.contains("lwjgl") || (library.name.contains("org.ow2.asm")) & !versionInfo.id.contains("fabric"))) {
                     continue;
                 }
                 for (int i = 0; i < 5; i++) {
@@ -205,13 +232,23 @@ public class Installer {
             }
 
             // Add our GLFW
-            classpath.add(Constants.USER_HOME + "/lwjgl3/lwjgl-glfw-classes.jar");
+            classpath.add(profile.lwjglFile().getAbsolutePath());
             // DNS SRV Resolver fix
             classpath.add(Constants.USER_HOME + "/hacks/ResConfHack.jar");
 
             Logger.getInstance().appendToLog("Libraries installed");
             return classpath.toString();
         });
+    }
+
+    /**
+     * True for the plain org.lwjgl:lwjgl-vulkan:&lt;version&gt; artifact (Java classes only). Native
+     * classifiers (natives-*) stay excluded: Quest has no desktop Vulkan loader for them.
+     */
+    static boolean isLwjglVulkanClasses(String libraryName) {
+        if (libraryName == null) return false;
+        String[] parts = libraryName.split(":");
+        return parts.length == 3 && parts[0].equals("org.lwjgl") && parts[1].equals("lwjgl-vulkan");
     }
 
     //Only works on minecraft, not fabric, quilt, etc...
@@ -359,6 +396,9 @@ public class Installer {
         for (Artifact artifact : bundledMods) {
             installVisorArtifact(activity, mods, artifact);
         }
+        if (version.installFabricApi) {
+            ensureFabricApi(mods, version);
+        }
 
         ArrayList<ProjectInfo> projects = new ArrayList<>();
         if (instance.extProjects != null) {
@@ -382,6 +422,36 @@ public class Installer {
             projects.add(toProjectInfo(artifact));
         }
         instance.extProjects = projects.toArray(new ProjectInfo[0]);
+    }
+
+    /**
+     * Upstream QuestCraft mods.json has no entry for some versions (26.2), so its coreMods never
+     * install Fabric API there. Install the versions.json build unless mods.json already put one in
+     * the folder; if both exist, drop ours so Fabric does not see a duplicate fabric-api mod.
+     */
+    private static void ensureFabricApi(File mods, VersionEntry version) throws IOException {
+        Artifact api = version.fabricApi;
+        if (!VisorVersionTable.isInstallableArtifact(api) || api.url == null) {
+            Logger.getInstance().appendToLog("No installable Fabric API entry for Minecraft " + version.id);
+            return;
+        }
+        File ours = new File(mods, api.artifactName);
+        boolean other = false;
+        File[] files = mods.listFiles();
+        if (files != null) {
+            for (File file : files) {
+                String name = file.getName().toLowerCase();
+                if (!file.equals(ours) && name.endsWith(".jar")
+                        && (name.contains("fabric-api") || name.contains("fabric_api"))) {
+                    other = true;
+                }
+            }
+        }
+        if (other) {
+            FileUtils.deleteQuietly(ours);
+            return;
+        }
+        installDownloadedMod(mods, api);
     }
 
     /** Drops entries that are incomplete (no SHA-1, asset or URL yet) with a log line instead of failing the install. */

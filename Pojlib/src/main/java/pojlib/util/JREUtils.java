@@ -31,6 +31,7 @@ import pojlib.API;
 
 import pojlib.UnityPlayerActivity;
 import pojlib.install.Installer;
+import pojlib.install.RuntimeProfile;
 import pojlib.install.MinecraftMeta;
 import pojlib.util.json.MinecraftInstances;
 
@@ -160,10 +161,17 @@ public class JREUtils {
         Log.i("jrelog-logcat","Logcat thread started");
     }
 
+    // Runtime for the instance being launched (set by prelaunchCheck/launchJavaVM). Legacy = runtimes/JRE + LTW.
+    private static RuntimeProfile profile = RuntimeProfile.LEGACY;
+
+    private static String jreHome(Context ctx) {
+        return ctx.getFilesDir() + "/runtimes/" + profile.jreDirName;
+    }
+
     public static void relocateLibPath(final Context ctx) {
         sNativeLibDir = ctx.getApplicationInfo().nativeLibraryDir;
 
-        LD_LIBRARY_PATH = ctx.getFilesDir() + "/runtimes/JRE/bin:" + ctx.getFilesDir() + "/runtimes/JRE/lib:" +
+        LD_LIBRARY_PATH = jreHome(ctx) + "/bin:" + jreHome(ctx) + "/lib:" +
                 "/system/lib64:/vendor/lib64:/vendor/lib64/hw:" +
                 sNativeLibDir;
     }
@@ -171,15 +179,21 @@ public class JREUtils {
     public static void setJavaEnvironment(Activity activity, MinecraftInstances.Instance instance) throws Throwable {
         Map<String, String> envMap = new ArrayMap<>();
         envMap.put("POJLIB_NATIVEDIR", activity.getApplicationInfo().nativeLibraryDir);
-        envMap.put("JAVA_HOME", activity.getFilesDir() + "/runtimes/JRE");
+        envMap.put("JAVA_HOME", jreHome(activity));
         envMap.put("HOME", instance.gameDir);
         //envMap.put("APP_HOME", Constants.USER_HOME);
         envMap.put("TMPDIR", activity.getCacheDir().getAbsolutePath());
         envMap.put("VR_MODEL", API.model);
-        envMap.put("POJLIB_RENDERER", "LightThinWrapper");
+        envMap.put("POJLIB_RENDERER", profile.rendererEnv());
+        if (profile.usesMobileGlues()) {
+            // MobileGlues keeps its config/cache here (QuestCraftPlusPlus/Pojlib QuestCraft-6.0.1)
+            File mgDir = new File(activity.getFilesDir(), "mg");
+            mgDir.mkdirs();
+            envMap.put("MG_DIR_PATH", mgDir.getAbsolutePath());
+        }
 
         envMap.put("LD_LIBRARY_PATH", LD_LIBRARY_PATH);
-        envMap.put("PATH", activity.getFilesDir() + "/runtimes/JRE/bin:" + Os.getenv("PATH"));
+        envMap.put("PATH", jreHome(activity) + "/bin:" + Os.getenv("PATH"));
 
         File customEnvFile = new File(Constants.USER_HOME, "custom_env.txt");
         if (customEnvFile.exists() && customEnvFile.isFile()) {
@@ -198,8 +212,8 @@ public class JREUtils {
             Os.setenv(env.getKey(), env.getValue(), true);
         }
 
-        File serverFile = new File(activity.getFilesDir() + "/runtimes/JRE/lib/server/libjvm.so");
-        jvmLibraryPath = activity.getFilesDir() + "/runtimes/JRE/lib/" + (serverFile.exists() ? "server" : "client");
+        File serverFile = new File(jreHome(activity) + "/lib/server/libjvm.so");
+        jvmLibraryPath = jreHome(activity) + "/lib/" + (serverFile.exists() ? "server" : "client");
         Log.d("DynamicLoader","Base LD_LIBRARY_PATH: "+LD_LIBRARY_PATH);
         Log.d("DynamicLoader","Internal LD_LIBRARY_PATH: "+jvmLibraryPath+":"+LD_LIBRARY_PATH);
         setLdLibraryPath(jvmLibraryPath+":"+LD_LIBRARY_PATH);
@@ -207,15 +221,17 @@ public class JREUtils {
 
     // Called before game launch to ensure all files are present and correct
     public static void prelaunchCheck(Activity activity, MinecraftInstances.Instance instance) throws IOException, ExecutionException, InterruptedException {
-        UnityPlayerActivity.installLWJGL(activity);
-        Installer.installJVM(activity);
+        profile = RuntimeProfile.forVersion(activity, instance.versionName);
+        UnityPlayerActivity.installLWJGL(activity, profile);
+        Installer.installJVM(activity, profile);
         Installer.installLauncherAssets(activity);
         Installer.installClient(MinecraftMeta.getVersionInfo(instance.versionName), Constants.USER_HOME).get();
-        Installer.installLibraries(MinecraftMeta.getVersionInfo(instance.versionName), Constants.USER_HOME).get();
+        Installer.installLibraries(MinecraftMeta.getVersionInfo(instance.versionName), Constants.USER_HOME, profile).get();
         Installer.installAssets(MinecraftMeta.getVersionInfo(instance.versionName), Constants.USER_HOME).get();
     }
 
     public static int launchJavaVM(final Activity activity, final List<String> JVMArgs, MinecraftInstances.Instance instance) throws Throwable {
+        profile = RuntimeProfile.forVersion(activity, instance.versionName);
         JREUtils.relocateLibPath(activity);
         setJavaEnvironment(activity, instance);
 
@@ -250,7 +266,10 @@ public class JREUtils {
 
         // Garbage collection
         userArgs.add("-XX:+UseZGC");
-        userArgs.add("-XX:+ZGenerational");
+        if (profile.usesDefaultJre()) {
+            // JRE 22 needs it for generational ZGC. Obsolete since JDK 24 (JRE 25 would only warn).
+            userArgs.add("-XX:+ZGenerational");
+        }
         userArgs.add("-XX:-ZProactive");
         userArgs.add("-XX:+UnlockDiagnosticVMOptions");
         userArgs.add("-XX:-ImplicitNullChecks");
@@ -267,10 +286,13 @@ public class JREUtils {
         userArgs.add("-Dorg.lwjgl.opengles.libname=" + "/system/lib64/libGLESv3.so");
         userArgs.add("-Dorg.lwjgl.egl.libname=" + "/system/lib64/libEGL_dri.so");
 
+        // Per-version extras from versions.json (26.2: the vanilla Java 25 flags)
+        userArgs.addAll(profile.extraJvmArgs);
+
         userArgs.addAll(JVMArgs);
         System.out.println(JVMArgs);
 
-        runtimeDir = activity.getFilesDir() + "/runtimes/JRE";
+        runtimeDir = jreHome(activity);
         initJavaRuntime();
 
         // Ported from QuestCraftPlusPlus/Pojlib QuestCraft-6.0.1
@@ -340,7 +362,7 @@ public class JREUtils {
             Logger.getInstance().appendToLog("Couldn't write DNS servers! " + e.getMessage());
         }
         return new ArrayList<>(Arrays.asList(
-                "-Djava.home=" + new File(ctx.getFilesDir(), "runtimes/JRE"),
+                "-Djava.home=" + new File(ctx.getFilesDir(), "runtimes/" + profile.jreDirName),
                 "-Djava.io.tmpdir=" + ctx.getCacheDir().getAbsolutePath(),
                 "-Duser.home=" + instance.gameDir,
                 "-Duser.language=" + System.getProperty("user.language"),
@@ -411,7 +433,7 @@ public class JREUtils {
      * @return The name of the loaded library
      */
     public static String loadGraphicsLibrary(){
-        return "libltw.so";
+        return profile.graphicsLibrary();
     }
 
     public static native long getEGLContextPtr();

@@ -39,6 +39,30 @@ public final class VisorVersionTable {
         public List<Artifact> bundledMods;
         public List<Artifact> downloadedMods;
         public String lwjglBundleId;
+
+        // Optional runtime fields (see RuntimeProfile). Missing = the 1.20.1 defaults.
+        /** APK asset of the GLFW/LWJGL bundle. Missing = lwjgl/lwjgl-glfw-classes.jar. */
+        public String lwjglAssetPath;
+        /** Keep org.lwjgl:lwjgl-vulkan Java classes (no natives) on the classpath (26.x client constructs VulkanBackend). */
+        public boolean lwjglVulkanClasses;
+        /** Java runtime to launch with. Missing = runtimes/JRE (QuestCraft JRE 22). */
+        public RuntimeSpec runtime;
+        /** "MobileGlues" or missing (= LightThinWrapper). */
+        public String renderer;
+        public List<String> extraJvmArgs;
+        /**
+         * Install {@link #fabricApi} from versions.json when no other Fabric API jar is present.
+         * For versions upstream QuestCraft mods.json does not list yet (26.2).
+         */
+        public boolean installFabricApi;
+    }
+
+    public static final class RuntimeSpec {
+        /** Directory name under files/runtimes, e.g. "JRE-25". Installed side by side with the default JRE. */
+        public String id;
+        public String url;
+        public String sha256;
+        public long size;
     }
 
     public static final class Artifact {
@@ -73,6 +97,11 @@ public final class VisorVersionTable {
                 if (entry.bundledMods == null) entry.bundledMods = new ArrayList<>();
                 if (entry.downloadedMods == null) entry.downloadedMods = new ArrayList<>();
                 if (entry.removeMods == null) entry.removeMods = new ArrayList<>();
+                if (entry.runtime != null && (isBlank(entry.runtime.id) || isBlank(entry.runtime.url)
+                        || !entry.runtime.id.matches("[A-Za-z0-9][A-Za-z0-9._-]*")
+                        || (!isBlank(entry.runtime.sha256) && !entry.runtime.sha256.matches("(?i)[0-9a-f]{64}")))) {
+                    throw new IOException("Invalid runtime for " + entry.id + " in " + ASSET_NAME);
+                }
                 // Visor and VisorEssentials must be installable before an entry can be offered.
                 if (entry.questReady
                         && (!isInstallableArtifact(entry.visor) || !isInstallableArtifact(entry.visorEssentials))) {
