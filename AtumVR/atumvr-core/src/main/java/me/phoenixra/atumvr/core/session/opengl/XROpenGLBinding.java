@@ -154,9 +154,15 @@ public class XROpenGLBinding {
         if (display == NULL || context == NULL) {
             throw new AtumVRException("No current EGL context");
         }
+        // TODO(VisorQuest): the Quest LWJGL OpenXR 3.3.3 jar (deps/lwjgl-openxr-quest-3.3.3.jar) predates the
+        // getProcAddress member of XrGraphicsBindingEGLMNDX, so this desktop Linux/EGL path cannot be built
+        // correctly against it. Quest never takes this path (XRPlatform.Android binds through
+        // XR_KHR_opengl_es_enable). Restore `.getProcAddress(egl.getProcAddress)` when building with LWJGL >= 3.3.4.
+        if (true) {
+            throw new AtumVRException("Desktop EGL (XR_MNDX_egl_enable) binding is not available in the Quest build of AtumVR");
+        }
         var binding = XrGraphicsBindingEGLMNDX.calloc(stack)
                 .type(MNDXEGLEnable.XR_TYPE_GRAPHICS_BINDING_EGL_MNDX)
-                .getProcAddress(egl.getProcAddress)
                 .display(display)
                 .context(context);
         long config = egl.contextConfig(display, context, stack);

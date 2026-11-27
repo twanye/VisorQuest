@@ -4,6 +4,7 @@ import lombok.Getter;
 import me.phoenixra.atumvr.api.AtumVRSession;
 import me.phoenixra.atumvr.core.enums.XRGraphicsApi;
 import me.phoenixra.atumvr.core.session.opengl.XROpenGLBinding;
+import me.phoenixra.atumvr.core.session.platform.XRPlatform;
 import me.phoenixra.atumvr.core.session.vulkan.XRVulkanBridge;
 import me.phoenixra.atumvr.core.utils.XRUtils;
 import me.phoenixra.atumvr.core.XRProvider;
@@ -85,6 +86,14 @@ public class XRSession implements AtumVRSession {
                     stack,
                     instance.getHandle(),
                     systemId
+            );
+        } else if (XRPlatform.get().usesAndroidBridge()) {
+            // Quest: XrGraphicsBindingOpenGLESAndroidKHR from the launcher's EGL context.
+            graphicsBind = XRPlatform.get().createGraphicsBinding(
+                    stack,
+                    instance.getHandle(),
+                    systemId,
+                    vrProvider.getRenderer().getWindowHandle()
             );
         } else {
             graphicsBind = new XROpenGLBinding(vrProvider).createGraphicsBinding(
