@@ -193,8 +193,18 @@ public class API {
                 Logger.getInstance().appendToLog("WARN! Instance launch failed!" + e);
                 return false;
             }
+            if (!InstanceHandler.repairIfBroken(activity, instance)) {
+                Logger.getInstance().appendToLog("Instance " + instance.instanceName + " could not be repaired. Delete it and create it again.");
+                DownloadManager.reset();
+                return false;
+            }
+            GsonUtils.objectToJsonFile(Constants.USER_HOME + "/instances.json", instances);
         } else {
             Logger.getInstance().appendToLog("Skipping prelaunch check due to no wifi connection!");
+            if (InstanceHandler.isBroken(instance)) {
+                Logger.getInstance().appendToLog("Instance " + instance.instanceName + " is missing launch data and needs an internet connection to repair.");
+                return false;
+            }
         }
         DownloadManager.reset();
         return true;
