@@ -66,6 +66,17 @@ public abstract class GameRendererMixin {
 
     @WrapMethod(method = "pick(F)V")
     private void visor$pickWithVRHands(float partialTick, Operation<Void> original) {
+        // Quest (coah80/Visor 32c80265): no picking while the level is torn down (gameMode is null)
+        if (this.minecraft.gameMode == null) {
+            if (this.minecraft.player != null) {
+                this.minecraft.hitResult = net.minecraft.world.phys.BlockHitResult.miss(this.minecraft.player.position(),
+                        this.minecraft.player.getDirection(), this.minecraft.player.blockPosition());
+            } else {
+                this.minecraft.hitResult = net.minecraft.world.phys.BlockHitResult.miss(Vec3.ZERO,
+                        net.minecraft.core.Direction.UP, net.minecraft.core.BlockPos.ZERO);
+            }
+            return;
+        }
         VRAimPicker.pickWithVRHands(() -> original.call(partialTick));
     }
 
@@ -240,6 +251,9 @@ public abstract class GameRendererMixin {
 
     @WrapOperation(at = @At(value = "FIELD", target = "Lnet/minecraft/client/renderer/GameRenderer;renderHand:Z"), method = "renderLevel")
     public boolean visor$noVanillaHands(GameRenderer instance, Operation<Boolean> original) {
+        if (minecraft.gameMode == null || minecraft.player == null) {
+            return false;
+        }
         if (VRRenderState.isSpectatedVRView(minecraft.getCameraEntity())) {
             return false;
         }

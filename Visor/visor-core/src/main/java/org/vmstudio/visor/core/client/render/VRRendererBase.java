@@ -1,5 +1,6 @@
 package org.vmstudio.visor.core.client.render;
 
+import me.phoenixra.atumvr.core.session.platform.XRPlatform;
 import com.mojang.blaze3d.pipeline.RenderTarget;
 import lombok.Getter;
 import lombok.Setter;
@@ -124,7 +125,10 @@ public abstract class VRRendererBase implements VRRenderer {
         McRenderTarget.clear(McRenderTarget.mainTarget());
         //?}
         boolean frameRendered = shouldRenderFrame();
-        MirrorHelper.drawMirror(frameRendered);
+        // Quest (coah80/Visor 32c80265): no desktop mirror window on Android, skip the mirror draw
+        if (!XRPlatform.isAndroid()) {
+            MirrorHelper.drawMirror(frameRendered);
+        }
         if (askedForScreenShot) {
             askedForScreenShot = false;
             ClientUtils.takeScreenshot(screenshotSource(frameRendered));
@@ -166,7 +170,9 @@ public abstract class VRRendererBase implements VRRenderer {
         McRenderTarget.bindWrite(McRenderTarget.mainTarget());
 
         ((GameRendererExtension)MC.gameRenderer).visor$setVRGuiVisible(
-                renderLevel && MC.getEntityRenderDispatcher().camera != null
+                MC.screen != null
+                        || MC.getOverlay() != null
+                        || renderLevel && MC.getEntityRenderDispatcher().camera != null
         );
     }
 

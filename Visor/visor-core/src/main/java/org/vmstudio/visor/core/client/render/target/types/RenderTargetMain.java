@@ -3,6 +3,7 @@ package org.vmstudio.visor.core.client.render.target.types;
 import com.mojang.blaze3d.pipeline.RenderTarget;
 import lombok.Getter;
 import me.phoenixra.atumvr.api.utils.GLUtils;
+import me.phoenixra.atumvr.core.session.platform.XRPlatform;
 import org.vmstudio.visor.core.client.VisorClientImpl;
 import org.vmstudio.visor.extensions.client.WindowExtension;
 import org.vmstudio.visor.core.client.render.target.RenderTargetHolder;
@@ -34,10 +35,15 @@ public class RenderTargetMain implements RenderTargetHolder {
         VisorClientImpl.LOGGER.info(this.target.toString());
 
         var mcWindow = (WindowExtension) (Object) MC.getWindow();
+        // Quest (coah80/Visor 32c80265): no mirror window on Android, keep the mirror target 1x1
+        int mirrorWidth = XRPlatform.isAndroid()
+                ? 1 : mcWindow.visor$mcScreenWidth();
+        int mirrorHeight = XRPlatform.isAndroid()
+                ? 1 : mcWindow.visor$mcScreenHeight();
         this.mirrorTarget = new VRRenderTarget(
                 "Mirror",
-                mcWindow.visor$mcScreenWidth(),
-                mcWindow.visor$mcScreenHeight(),
+                mirrorWidth,
+                mirrorHeight,
                 true, () -> -1,
                 false, false
         );
@@ -72,8 +78,10 @@ public class RenderTargetMain implements RenderTargetHolder {
         var mcWindow = (WindowExtension) (Object) MC.getWindow();
         McRenderTarget.resize(
                 this.mirrorTarget,
-                Math.max(1, mcWindow.visor$mcScreenWidth()),
-                Math.max(1, mcWindow.visor$mcScreenHeight())
+                XRPlatform.isAndroid()
+                        ? 1 : Math.max(1, mcWindow.visor$mcScreenWidth()),
+                XRPlatform.isAndroid()
+                        ? 1 : Math.max(1, mcWindow.visor$mcScreenHeight())
         );
 
     }

@@ -29,6 +29,11 @@ def major      = versionPart("version.major").toInteger()
 def minor      = versionPart("version.minor").toInteger()
 def patch      = versionPart("version.patch").toInteger()
 def build      = versionPart("version.build").toInteger()
+// VisorQuest (from coah80/Visor 25740234, which set version.stage=+questcraft): label Quest builds
+// "+questcraft". It is semver build metadata, so VisorEssentials' "visor >= x.y.z" still matches.
+if (stage.isEmpty() && (findProperty("visor_quest") ?: "false").toString().toBoolean()) {
+    stage = "+questcraft"
+}
 
 ext.mod_version = (isAlpha
         ? "${major}.${minor}.${patch}${stage}-alpha.${build}"

@@ -33,6 +33,14 @@ public abstract class GuiMixin implements GuiExtension {
     @Shadow
     private Minecraft minecraft;
 
+    // Quest (coah80/Visor 32c80265): skip the HUD while a level is being torn down (gameMode already null)
+    @Inject(at = @At("HEAD"), method = "render", cancellable = true)
+    private void visor$skipHudDuringLevelTeardown(CallbackInfo ci) {
+        if (minecraft.level != null && minecraft.gameMode == null) {
+            ci.cancel();
+        }
+    }
+
     /* ********************************** *\
   //--------DISABLE VANILLA OVERLAYS--------\\
     \* ********************************** */

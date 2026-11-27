@@ -31,6 +31,11 @@ public enum PlayerPoseType {
      *   to provide smooth visuals.
      * </p>
      */
-    RENDER
+    RENDER;
+
+    /**
+     * Old name of {@link #ROOM}, kept for addons built against it (coah80/Visor 25740234, "make essentials work").
+     */
+    public static final PlayerPoseType RELATIVE = ROOM;
 
 }
