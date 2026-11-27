@@ -64,6 +64,8 @@ repositories {
 
     // ---- LOCAL DEPENDENCY: the AtumVR jars in <root>/libs
     flatDir { dirs rootProject.file("libs") }
+    // ---- VisorQuest: QuestCraft's LWJGL OpenXR 3.3.3 jar in <repo>/deps (only used with -Pvisor_quest=true)
+    flatDir { dirs rootProject.file("../deps") }
     // ----
 
     exclusiveContent {
@@ -76,8 +78,15 @@ repositories {
 if (!(atumvr_source in ["local", "maven"])) {
     throw new GradleException("atumvr_source must be \"local\" or \"maven\", got \"${atumvr_source}\"")
 }
+// VisorQuest: `-Pvisor_quest=true` builds the Quest (Android) variant. It uses AtumVR jars built
+// from <repo>/AtumVR (with the Android OpenXR platform hooks) copied to <root>/libs as
+// atumvr-api-quest.jar / atumvr-core-quest.jar, and bundles QuestCraft's LWJGL OpenXR jar.
+// Ported from coah80/Visor a0275017.
+project.ext.questBuild = (findProperty("visor_quest") ?: "false").toString().toBoolean()
 project.ext.atumvr = { String module ->
-    atumvr_source == "local"
+    questBuild
+            ? [name: "atumvr-${module}-quest"]
+            : atumvr_source == "local"
             ? [name: "atumvr-${module}-${atumvr_version}"]
             : "com.github.Phoenix-Ra.AtumVR:atumvr-${module}:${atumvr_version}"
 }
