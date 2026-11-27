@@ -191,12 +191,15 @@ public class InstanceHandler {
 
                 instance.assetsDir = assetsFuture.get();
                 Installer.moveLocalAssets(activity, instance);
-            } catch (IOException | ExecutionException | InterruptedException e) {
-                e.printStackTrace();
+            } catch (Exception e) {
+                // Previously only printed to logcat, which left a half-installed instance with no
+                // visible error. Log it so the launcher shows what failed.
+                Logger.getInstance().appendToLog("Instance install failed for " + instanceName, e);
             }
             instance.assetIndex = minecraftVersionInfo.assetIndex.id;
 
-            // Write instance to json file
+            // Write instance to json file. A broken instance is still saved so the next launch
+            // can repair it (see repairIfBroken) or the user can delete it.
             instance.updateMods(instances);
             GsonUtils.objectToJsonFile(gameDir + "/instances.json", instances);
 
@@ -204,11 +207,81 @@ public class InstanceHandler {
                 postInstall.accept(instance);
 
             DownloadManager.reset();
-            Logger.getInstance().appendToLog("Finished Creating Instance!");
+            if (isBroken(instance)) {
+                Logger.getInstance().appendToLog("Instance " + instanceName + " was not fully installed. Launching it will try to repair it.");
+            } else {
+                Logger.getInstance().appendToLog("Finished Creating Instance!");
+            }
             return null;
         });
 
         return instance;
+    }
+
+    // True when the instance is missing data it needs to launch (for example after an install failed part way)
+    public static boolean isBroken(MinecraftInstances.Instance instance) {
+        return instance.classpath == null || instance.mainClass == null
+                || instance.assetsDir == null || instance.assetIndex == null || instance.gameDir == null;
+    }
+
+    // Re-runs the install steps for an instance saved without its launch data and fills in what is missing.
+    // Returns true if the instance can be launched afterwards.
+    public static boolean repairIfBroken(Activity activity, MinecraftInstances.Instance instance) {
+        if (!isBroken(instance)) {
+            return true;
+        }
+        Logger.getInstance().appendToLog("Instance " + instance.instanceName + " is missing launch data, attempting repair");
+        try {
+            VersionInfo minecraftVersionInfo = MinecraftMeta.getVersionInfo(instance.versionName);
+            if (minecraftVersionInfo == null) {
+                throw new IOException("No version info for Minecraft " + instance.versionName);
+            }
+
+            // The mod loader is not stored on the instance; infer it from the main class (QuestCraft default is Fabric)
+            VersionInfo modLoaderVersionInfo;
+            if (instance.mainClass != null && instance.mainClass.contains("quilt")) {
+                QuiltMeta.QuiltVersion quiltVersion = QuiltMeta.getLatestVersion();
+                modLoaderVersionInfo = quiltVersion == null ? null : QuiltMeta.getVersionInfo(quiltVersion, instance.versionName);
+            } else {
+                FabricMeta.FabricVersion fabricVersion = FabricMeta.getLatestVersion();
+                modLoaderVersionInfo = fabricVersion == null ? null : FabricMeta.getVersionInfo(fabricVersion, instance.versionName);
+            }
+            if (modLoaderVersionInfo == null) {
+                throw new IOException("No mod loader info for Minecraft " + instance.versionName);
+            }
+
+            String gameDir = Constants.USER_HOME;
+            String clientClasspath = Installer.installClient(minecraftVersionInfo, gameDir).get();
+            String minecraftClasspath = Installer.installLibraries(minecraftVersionInfo, gameDir).get();
+            String modLoaderClasspath = Installer.installLibraries(modLoaderVersionInfo, gameDir).get();
+            String assetsDir = Installer.installAssets(minecraftVersionInfo, gameDir).get();
+            String lwjgl = UnityPlayerActivity.installLWJGL(activity);
+
+            if (instance.classpath == null) {
+                instance.classpath = clientClasspath + File.pathSeparator + minecraftClasspath + File.pathSeparator + modLoaderClasspath + File.pathSeparator + lwjgl;
+            }
+            if (instance.mainClass == null) {
+                instance.mainClass = modLoaderVersionInfo.mainClass;
+            }
+            if (instance.versionType == null) {
+                instance.versionType = minecraftVersionInfo.type;
+            }
+            if (instance.assetsDir == null) {
+                instance.assetsDir = assetsDir;
+            }
+            if (instance.assetIndex == null && minecraftVersionInfo.assetIndex != null) {
+                instance.assetIndex = minecraftVersionInfo.assetIndex.id;
+            }
+        } catch (Exception e) {
+            Logger.getInstance().appendToLog("Instance repair failed for " + instance.instanceName, e);
+            return false;
+        }
+
+        boolean repaired = !isBroken(instance);
+        Logger.getInstance().appendToLog(repaired
+                ? "Instance " + instance.instanceName + " repaired"
+                : "Instance " + instance.instanceName + " is still missing launch data after repair");
+        return repaired;
     }
 
     // Load an instance from json
