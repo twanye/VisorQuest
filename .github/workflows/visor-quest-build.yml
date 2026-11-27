@@ -1,19 +1,20 @@
-# Builds the Quest variant of Visor for Minecraft 1.20.1 (Fabric) from Visor/, against AtumVR built from AtumVR/.
-# Added by Hark for VisorQuest. Build only: a green run means it compiles, not that it works on a Quest.
+# Builds the Quest variant of Visor (Fabric) for Minecraft 1.20.1 and 1.21.1 from Visor/, against AtumVR built from AtumVR/.
+# Added by Hark for VisorQuest, matrix extended to 1.21.1 by Claude. Build only: a green run means it compiles, not that it works on a Quest.
 #
-# Visor configures every Stonecutter target (14 MC versions x 3 loaders) by default. This job trims
-# the targets to 1.20.1 Fabric inside the CI checkout only (nothing is committed): every version
-# stays in the [targets] table (visor-core's mcversion range files must name real visor-core
-# targets), but only "1.20.1" keeps a loader ("fabric"); the forge/neoforge branches are dropped;
-# and Gradle runs with --configure-on-demand so only the projects the 1.20.1 Fabric build needs
-# (visor-api/visor-core/visor-fabric 1.20.1) set up a Minecraft jar.
-name: Build Visor Quest (1.20.1 Fabric)
+# Visor configures every Stonecutter target (14 MC versions x 3 loaders) by default. Each matrix leg
+# trims the targets to one Fabric version inside the CI checkout only (nothing is committed): every
+# version stays in the [targets] table (visor-core's mcversion range files must name real visor-core
+# targets), but only the leg's version keeps a loader ("fabric"); the forge/neoforge branches are
+# dropped; and Gradle runs with --configure-on-demand so only the projects that leg needs
+# (visor-api/visor-core/visor-fabric for that version) set up a Minecraft jar.
+name: Build Visor Quest (Fabric)
 
 on:
   workflow_dispatch:
   push:
     branches:
       - hark/visor-builds
+      - hark/mc-1.21.1
 
 permissions:
   contents: read
@@ -24,15 +25,20 @@ concurrency:
 
 jobs:
   build:
+    name: Visor Quest ${{ matrix.mc }} Fabric
     runs-on: ubuntu-latest
     timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        mc: ["1.20.1", "1.21.1"]
 
     steps:
       - name: Checkout
         uses: actions/checkout@v5
 
       # AtumVR (Gradle 8.4) runs on JDK 17. Visor (Gradle 9.7.1, Loom) runs on JDK 21 and uses
-      # toolchains: 17 for the 1.20.1 target, 25 for the 26.3 active version.
+      # toolchains: 17 for the 1.20.1 target, 21 for 1.21.1, 25 for the 26.3 active version.
       - name: Set up JDK 17, 25 and JDK 21 (default)
         uses: actions/setup-java@v5
         with:
@@ -65,18 +71,21 @@ jobs:
           cp "$core" Visor/libs/atumvr-core-quest.jar
           ls -l Visor/libs
 
-      - name: Restrict Stonecutter targets to 1.20.1 Fabric (CI checkout only)
+      - name: Restrict Stonecutter targets to ${{ matrix.mc }} Fabric (CI checkout only)
         working-directory: Visor
+        env:
+          MC: ${{ matrix.mc }}
         run: |
           python3 - <<'EOF'
-          import re
+          import os, re
+          mc = os.environ["MC"]
           p = "stonecutter.properties.toml"
           s = open(p, encoding="utf-8").read()
           m = re.search(r'(?ms)^\[targets\]\n(.*?)(?=^# ---- Version dependencies)', s)
           assert m, "could not find the [targets] table"
           versions = re.findall(r'(?m)^"([^"]+)"\s*=', m.group(1))
-          assert "1.20.1" in versions, "1.20.1 is not a target"
-          table = "".join('"%s" = %s\n' % (v, '["fabric"]' if v == "1.20.1" else "[]") for v in versions)
+          assert mc in versions, "%s is not a target" % mc
+          table = "".join('"%s" = %s\n' % (v, '["fabric"]' if v == mc else "[]") for v in versions)
           s = s[:m.start(1)] + table + "\n" + s[m.end(1):]
           open(p, "w", encoding="utf-8", newline="\n").write(s)
 
@@ -90,20 +99,20 @@ jobs:
           sed -n '/^\[targets\]/,/^# ----/p' stonecutter.properties.toml
           grep -n 'branch(' settings.gradle
 
-      - name: Build Visor (Quest, 1.20.1 Fabric)
+      - name: Build Visor (Quest, ${{ matrix.mc }} Fabric)
         working-directory: Visor
         run: |
           chmod +x ./gradlew
-          ./gradlew -Pvisor_quest=true :visor-fabric:1.20.1:buildAndCollect \
+          ./gradlew -Pvisor_quest=true :visor-fabric:${{ matrix.mc }}:buildAndCollect \
             --stacktrace --no-daemon --configure-on-demand \
             "-Dorg.gradle.jvmargs=-Xmx10G -XX:MaxMetaspaceSize=2G -XX:+HeapDumpOnOutOfMemoryError" \
             -Porg.gradle.java.installations.fromEnv=JAVA_HOME_17_X64,JAVA_HOME_21_X64,JAVA_HOME_25_X64
-          ls -l build/libs visor-fabric/versions/1.20.1/build/libs || true
+          ls -l build/libs visor-fabric/versions/${{ matrix.mc }}/build/libs || true
 
       - name: Upload Visor + AtumVR jars
         uses: actions/upload-artifact@v4
         with:
-          name: visor-quest-1.20.1-${{ github.sha }}
+          name: visor-quest-${{ matrix.mc }}-${{ github.sha }}
           path: |
             Visor/build/libs/*.jar
             AtumVR/atumvr-api/build/libs/*.jar
