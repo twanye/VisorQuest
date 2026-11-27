@@ -316,3 +316,29 @@ teardown guards, world preloader), Visor 0.6.1 itself on Quest, and VisorEssenti
    split OpenXR jar, 26.2 Vulkan libs, 26.3 SDL3 last).
 5. TODO(User) still open: where VisorQuest hosts its own `mods.json`/`supportedVersions.json`
    (`Constants.UPSTREAM_QUESTCRAFT_MANIFEST_BASE_URL`).
+
+## WIP status / next steps (branch `hark/mc-1.21.1`, Hark, 2026-11-27)
+
+> Stopped early (usage limit). **No code changed yet, no CI run started.** Nothing here is built or tested.
+
+Branch `hark/mc-1.21.1` was created from `hark/visor-builds` @ `91331f8`. Findings so far (read only):
+
+- Visor's per-version sources use `// #!MC-VERSION:: <from>-<to>` range headers in
+  `visor-core/mcversion/<ver>/`. The Quest level-teardown guards are already in files whose ranges cover
+  1.21.1: `mcversion/1.20.1/.../MinecraftLoopMixin.java` (`1.20.1-1.21.11`), `GuiMixin.java` and
+  `GameRendererMixin.java` (`1.20.1-1.21.5`). So 1.21.1 picks them up with no port; only the 1.21.8+ and
+  26.x copies of GuiMixin/GameRendererMixin lack them. Whether they compile for 1.21.1 is unverified.
+- `WorldPreloader`/`CreateWorldScreenMixin` are already Stonecutter-gated `<1.20.2`, so 1.21.1 gets the no-op path.
+- Stonecutter `["1.21.1"]`: Java 21, `fabric_api_version` `0.116.17`, MC range `>=1.21 <1.21.2`.
+
+Next steps (the original task list):
+1. `visor-quest-build.yml`: make it a matrix over `1.20.1` and `1.21.1` (the trim step keeps `["fabric"]`
+   only for `${{ matrix.mc }}`; build `:visor-fabric:${{ matrix.mc }}:buildAndCollect`; artifact
+   `visor-quest-${{ matrix.mc }}-<sha>`), add `hark/mc-1.21.1` to the push branches, dispatch, fix compile errors.
+2. Check the 1.21.1 jar (Quest classes, no lwjgl-vulkan, MC range, LWJGL 3.3.3 static scan).
+3. Pojlib: per-version Visor/VE assets (e.g. `mods/1.21.1/Visor.jar`), installed names stay
+   `visor.jar`/`visoressentials.jar`; bundle VE `0.6.1+mc1.21.1-fabric` (Modrinth `xcYlq5Zb`, SHA-1
+   `e5641e7a…`); verified perf mods; `questReady: true`. Keep the 1.20.1 entry and jars byte-identical.
+4. Launch-arg/asset-index/`"1.20.1"` hard-code audit against the Mojang 1.21.1 JSON.
+5. APK build (`quest-apk.yml` on `hark/ci-quest-apk`, `pojlib_ref=hark/mc-1.21.1`), then the draft PR
+   into `hark/visor-builds` ("MC 1.21.1 Quest build (Hark, untested)").
