@@ -1,8 +1,9 @@
-# Multiversion notes (branch `hark/multiversion`)
+# Multiversion notes (branch `hark/multiversion`, continued on `hark/visor-builds`)
 
 > **Status: UNTESTED ON DEVICE.** Nothing on this branch has been run on a Quest. The only
-> verification is that the Pojlib AAR and the Quest APK compile in CI, and that AtumVR compiles in a
-> sandbox. Written by Hark for Tucker (the User), 2026-11-27. Do not merge without Tucker.
+> verification is that the Pojlib AAR and the Quest APK compile in CI, that AtumVR compiles, and
+> (on `hark/visor-builds`) that the Quest Visor 1.20.1 Fabric jar compiles in CI. Written by Hark for
+> Tucker (the User), 2026-11-27. Do not merge without Tucker.
 
 Base: `deepseek/visor-0.6.1-quest` @ `302ca1f` (launches 1.20.1 on a Quest 3S).
 Plan it follows: `docs/VERSION_MATRIX.md`, `docs/ARCHITECTURE.md`, `docs/1.21.11-ASSESSMENT.md`.
@@ -16,8 +17,11 @@ Plan it follows: `docs/VERSION_MATRIX.md`, `docs/ARCHITECTURE.md`, `docs/1.21.11
 | `e80058b` | PR #5 `58c75cd` (ChatGPT) cherry-picked cleanly: `unzipSavesFromFolder`, `mirrorNativesInFolder`, `extraNatives` (the Unity JNI gap). |
 | `58659b8` | Hark: P0 table-driven gate and per-version perf mods; 1.21.1 entry. |
 | `0047ba7` | Hark: P1 AtumVR port of coah80/AtumVR `d04c1669` + `deps/lwjgl-openxr-quest-3.3.3.jar`. |
-| `9dad863` | Hark: P1 Visor port of coah80/Visor `a0275017` behind `-Pvisor_quest=true` (**not compiled**). |
-| (this) | Hark: this file. |
+| `9dad863` | Hark: P1 Visor port of coah80/Visor `a0275017` behind `-Pvisor_quest=true` (compiled later in CI, see below). |
+| `9232da6` | Hark: this file. |
+| `0ad0e0d` | `hark/visor-builds` only: `.github/workflows/visor-quest-build.yml` (AtumVR → Visor CI build). |
+| `e4fd696` | `hark/visor-builds` only: CI fix (keep every version in the CI `[targets]` table, `--configure-on-demand`). First green run. |
+| (this) | `hark/visor-builds` only: this section update. |
 
 ## P0: what changed in Pojlib
 
@@ -94,7 +98,7 @@ size), set `questReady: true`.
 - Version note: the imported AtumVR source says `1.14.0beta-snapshot#14`, while upstream Visor 0.6.1
   pins `#27` jars in `Visor/libs`. The source in `AtumVR/` may be older than what Visor 0.6.1 expects.
 
-### Visor (`9dad863`) — NOT compiled
+### Visor (`9dad863`) — compiles in CI (see "Visor Quest CI build" below)
 - Ported coah80/Visor `a0275017` ("quest android support"): `QuestVLoader` (JNI into Pojlib's
   `libvloader`), `QuestAndroidXRBridge`, and `XrProvider` installs the bridge (only switches
   platform on Android).
@@ -109,14 +113,14 @@ size), set `questReady: true`.
   `32c80265` ("optimize Quest rendering and world loading", ~40 files across overlays, renderer,
   mixins). Both need a by-hand port onto 0.6.1's Stonecutter layout.
 
-### Visor build result: blocked by the sandbox, not by code
+### Visor build result in the sandbox (superseded by the CI build below)
 `./gradlew -Pvisor_quest=true :visor-fabric:1.20.1:build` (Gradle 9.7.1, JDK 21 + 17) never reached
 compilation. Stonecutter configures **every** target (14 MC versions × fabric/forge/neoforge), and
 Loom sets up a Minecraft jar for each one. On Hark's sandbox (2 CPUs, ~8 GB RAM shared with a
 RAM-backed disk) the Gradle daemon was killed three times while configuring (last seen at
 `:visor-forge:1.20.2`), with no compile errors logged. Per the "stop after two repeats" rule, P1 stopped there.
 
-So the Visor changes are **unverified**. Known consequence: `XrProvider` now references
+In the sandbox the Visor changes stayed unverified; the CI build below compiles them. Known consequence: `XrProvider` now references
 `XRPlatform`/`AndroidXRBridge`, which only exist in the ported `AtumVR/`, so a **normal (non-quest)
 Visor build will no longer compile** against the `#27` jars in `Visor/libs`. Build Visor only with
 `-Pvisor_quest=true` and the Quest AtumVR jars, or revert `XrProvider` for desktop builds.
@@ -126,6 +130,63 @@ that builds `AtumVR/`, copies the two jars into `Visor/libs/`, then runs the com
 (possibly after trimming `[targets]` in `stonecutter.properties.toml` to `"1.20.1" = ["fabric"]`
 inside the CI job only, so Loom configures one target).
 
+## Visor Quest CI build (branch `hark/visor-builds`)
+
+Workflow `Build Visor Quest (1.20.1 Fabric)`, `.github/workflows/visor-quest-build.yml`. Runs on push
+to `hark/visor-builds` and on `workflow_dispatch`. Steps:
+
+1. JDK 17, 25 and 21 (default) via `setup-java`; Gradle cache via `gradle/actions/setup-gradle`
+   (`cache-read-only: false`, so this non-default branch writes the cache too).
+2. `AtumVR/`: `./gradlew :atumvr-api:jar :atumvr-core:jar` on JDK 17 (its Gradle 8.4 can't run on 21).
+3. Copies `atumvr-{api,core}-1.14.0beta-snapshot#14.jar` to `Visor/libs/atumvr-{api,core}-quest.jar`.
+4. Trims Stonecutter **in the CI checkout only** (nothing committed): every version stays in
+   `[targets]` (visor-core's mcversion range-file headers must name real visor-core targets, so
+   dropping versions fails with `PlayerMixin.java: 1.20.6 is not a visor-core target`), but only
+   `"1.20.1" = ["fabric"]` keeps a loader; the `visor-forge`/`visor-neoforge` branch lines are removed
+   from `settings.gradle`.
+5. `./gradlew -Pvisor_quest=true :visor-fabric:1.20.1:buildAndCollect --configure-on-demand` with
+   `-Xmx10G` and toolchains from `JAVA_HOME_{17,21,25}_X64`. With configure-on-demand only
+   `visor-api`/`visor-core`/`visor-fabric` 1.20.1 set up a Minecraft jar. Build took 1m 45s.
+6. Uploads artifact `visor-quest-1.20.1-<sha>`: `Visor/build/libs/*.jar` plus the two AtumVR jars.
+
+First green run: https://github.com/twanye/VisorQuest/actions/runs/46066825520 (commit `e4fd696`),
+artifact `visor-quest-1.20.1-e4fd69631d94748915a3b47b42eea1f0060d7c24`, 13,347,547 B zipped.
+No compile errors: the `a0275017` port compiled as written. Two compiler warnings
+(`RenderSystemAccessor`: no obfuscation mapping for `shaderTextures`/`shaderGameTime`) are in
+upstream Visor code, not the port. Loom also notes `() is not valid semver for dependency
+:lwjgl-openxr-quest-3.3.3:`; harmless, because that jar already carries its own `fabric.mod.json`
+(id `questcraftplusplus_lwjgl3_lwjgl-openxr-3`, version `3.3.3`), same as in coah's jar.
+
+### What the jar contains (checked from the artifact)
+
+`Visor-0.6.1+mc1.20.1-fabric.jar`, 11,825,930 B, SHA-1 `6099e8040224a14abad07634f06799bcc1f52548`
+(plus `Visor-0.6.1+mc1.20.1-fabric-api.jar`, 1,763,955 B). Class files are Java 17 (major 61).
+
+- Quest classes present: `org/vmstudio/visor/core/client/provider/openxr/QuestVLoader`,
+  `QuestAndroidXRBridge`, and the shaded AtumVR `me/phoenixra/atumvr/core/session/platform/XRPlatform`
+  (+ `$Android`, `$Desktop`, `$Holder`) and `AndroidXRBridge`. Same class names as coah's
+  `Pojlib/src/main/assets/mods/Visor.jar` (`0.4.0+questcraft`).
+- `javap` against coah's jar: `QuestAndroidXRBridge` and `AndroidXRBridge` match exactly.
+  `QuestVLoader` lacks coah's `getDeviceModel()` (native), `deviceModel()`, `isQuest2()`,
+  `isQuest3Family()`; those come with the unported `32c80265`. `XRPlatform$Android` additionally
+  overrides `usesAndroidBridge()` (our 1.14 port's design).
+- Nested jars: `lwjgl-openxr-quest-3.3.3.jar` (byte-identical to `deps/`, SHA-1 `e042aa98…`) and
+  fabric-api-base / resource-loader-v0 / command-api-v2, same as coah's, **plus
+  `lwjgl-vulkan-3.3.6.jar` (7.3 MB)**, which coah's 0.4.0 jar does not have (upstream 0.6.1's
+  `bundlesVulkan`). That is most of the size difference (11.8 MB vs coah's 4.4 MB). Unchecked
+  whether a nested LWJGL 3.3.6 Vulkan module conflicts with Pojlib's LWJGL 3.3.3 on the Quest.
+- `fabric.mod.json`: `"version": "0.6.1"`, `"minecraft": ">=1.20 <1.20.2"`,
+  `"fabricloader": ">=0.14.14"`, `"java": ">=17"`, `fabric-api: *`, license `MPL-2.0`.
+  (coah's is `0.4.0+questcraft`, LGPLv3.) Note `versions.json` still points 1.20.1 at the bundled
+  `0.4.0+questcraft` jar; this CI jar is not wired into the launcher.
+
+### AtumVR #14 source vs the #27 jars Visor 0.6.1 pins
+
+`javap -protected` over every class of our `atumvr-{api,core}` build vs `Visor/libs/*#27.jar`: the
+API is identical; the only difference is the five added `session/platform` classes. So the `#14`
+label in `AtumVR/version.properties` looks like a stale build number, not older code. Method
+bodies were not compared.
+
 ## What is untested
 
 Everything on device. In particular: the table-driven `installVisor` on 1.20.1 (should be identical),
@@ -134,9 +195,9 @@ the saves/natives JNI ports, every AtumVR/Visor Quest change, and VisorEssential
 ## Next steps
 
 1. Device-test this APK on 1.20.1 (should match `deepseek/…`): launch, Visor loads, saves/natives buttons.
-2. Finish P1 for 1.20.1: port AtumVR `1d7dd401`, Visor `25740234` and `32c80265`; build the Quest
-   Visor 1.20.1 jar; compare against coah's 0.4.0 artifact on device. Consider a CI job that builds
-   AtumVR → Visor (the sandbox is too small for Visor's 14-target Stonecutter configure).
+2. Finish P1 for 1.20.1: port AtumVR `1d7dd401`, Visor `25740234` and `32c80265` by hand (push to
+   `hark/visor-builds`, CI rebuilds the jar); decide whether the Quest build should drop the nested
+   `lwjgl-vulkan-3.3.6.jar`; then try the CI jar on device against coah's 0.4.0 jar.
 3. 1.21.1: build the Quest Visor jar for the `1.21.1` Stonecutter target, fill `visor` in
    `versions.json`, decide its perf mods, set `questReady: true`.
 4. Then, per `docs/VERSION_MATRIX.md` §5: **1.21.5 → 1.21.7** (Visor `1.21.8` build) **→ 1.21.11**
