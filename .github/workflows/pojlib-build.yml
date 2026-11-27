@@ -1,0 +1,77 @@
+# Builds the Pojlib Android library (AAR) from Pojlib/.
+# Added by Hark for VisorQuest. Build only: a green run means it compiles, not that it works on a Quest.
+name: Build Pojlib
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'Pojlib/**'
+      - '.github/workflows/pojlib-build.yml'
+  pull_request:
+    paths:
+      - 'Pojlib/**'
+      - '.github/workflows/pojlib-build.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pojlib-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: Pojlib
+
+    steps:
+      - name: Checkout (with Git LFS)
+        uses: actions/checkout@v5
+        with:
+          lfs: true
+
+      - name: Fail if any native .so is still an LFS pointer
+        run: |
+          bad=0
+          while IFS= read -r f; do
+            if head -c 40 "$f" | grep -q "git-lfs.github.com/spec"; then
+              echo "::error file=Pojlib/$f::still a Git LFS pointer, not a real library"
+              bad=1
+            fi
+          done < <(git ls-files '*.so')
+          exit $bad
+
+      # JDK 17 is the default: libs/unity-classes.jar is compiled for Java 17 (class version 61).
+      # JDK 8 is for the jre_lwjgl3glfw toolchain.
+      - name: Set up JDK 8 and JDK 17 (default)
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: |
+            8
+            17
+
+      - name: Install Android SDK parts (NDK r26b, build-tools 30.0.3, platform 34)
+        working-directory: .
+        run: |
+          SDKM="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKM" --licenses > /dev/null || true
+          "$SDKM" --install "ndk;26.1.10909125" "build-tools;30.0.3" "platforms;android-34"
+
+      - name: Set up Gradle cache
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Build AAR (debug + release)
+        run: |
+          chmod +x ./gradlew
+          ./gradlew assemble --stacktrace -Porg.gradle.java.installations.fromEnv=JAVA_HOME_8_X64,JAVA_HOME_17_X64
+
+      - name: Upload AAR
+        uses: actions/upload-artifact@v4
+        with:
+          name: pojlib-aar-${{ github.sha }}
+          path: Pojlib/build/outputs/aar/*.aar
+          if-no-files-found: error
