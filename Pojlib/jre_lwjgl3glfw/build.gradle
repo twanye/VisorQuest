@@ -31,3 +31,44 @@ java {
 dependencies {
     implementation fileTree(dir: 'libs', include: ['*.jar'])
 }
+
+// ---- VisorQuest: separate LWJGL bundle for Minecraft 26.x ------------------------------------
+// Minecraft 26.x is compiled against LWJGL 3.4.1 but Pojlib runs it on this 3.3.3 GLFW shim.
+// lwjgl-glfw-classes-26.jar = the same shim plus the additive QuestCraftPlus+ patches 26.2 needs:
+//   - src/mc26/java: GLFW.java with glfwPlatformSupported() and ~20 GLFW 3.4 methods, the
+//     glfwGetInputMode NPE fix, and the IME/preedit callback placeholders
+//     (MisterEnglishDev/QuestCraftPlus-Pojlib 9361b33, c98b70a; LGPL-3.0 / LWJGL BSD-3).
+//   - libs-mc26/lwjgl.jar: MemoryUtil.memFree(<typed buffer>) overloads (c98b70a, b85338d).
+//   - libs-mc26/lwjgl-stb.jar: STBImageResize.nstbir_resize_uint8_linear shim (398d559).
+// The 1.20.1/1.21.1 jar above is unchanged. versions.json picks the bundle via lwjglBundleId.
+def mc26SharedSrc = layout.buildDirectory.dir("mc26-shared-src")
+def syncMc26SharedSrc = tasks.register("syncMc26SharedSrc", Sync) {
+    from("src/main/java") {
+        // replaced by the patched copy in src/mc26/java
+        exclude "org/lwjgl/glfw/GLFW.java"
+    }
+    into mc26SharedSrc
+}
+
+def mc26Libs = files(fileTree(dir: 'libs', include: ['*.jar'], exclude: ['lwjgl.jar', 'lwjgl-stb.jar']),
+        fileTree(dir: 'libs-mc26', include: ['*.jar']))
+
+sourceSets {
+    mc26 {
+        java.srcDirs = [mc26SharedSrc, "src/mc26/java"]
+        compileClasspath += mc26Libs
+    }
+}
+tasks.named("compileMc26Java") { dependsOn syncMc26SharedSrc }
+
+def jarMc26 = tasks.register("jarMc26", Jar) {
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    archiveFileName = "lwjgl-glfw-classes-26.jar"
+    destinationDirectory.set(file("../src/main/assets/lwjgl/"))
+    from sourceSets.mc26.output
+    from { mc26Libs.collect { zipTree(it) } }
+    exclude 'net/java/openjdk/cacio/ctc/**'
+    // QuestCraftPlus+ c98b70a: drop multi-release variants (Jetifier rejects newer class versions)
+    exclude 'META-INF/versions/**'
+}
+tasks.named("assemble") { dependsOn jarMc26 }
