@@ -32,6 +32,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import pojlib.util.json.ProjectInfo;
 
 //This class reads data from a game version json and downloads its contents.
@@ -43,6 +44,11 @@ public class Installer {
 
     private static final int ASSET_DOWNLOAD_THREADS = 8;
     private static final int ASSET_DOWNLOAD_ATTEMPTS = 5;
+    // Log asset progress every N assets instead of one line per asset: ~3,600 lines
+    // on a first install overflow the launcher's log view and it goes blank.
+    private static final int ASSET_PROGRESS_INTERVAL = 250;
+    private static final AtomicInteger assetsChecked = new AtomicInteger();
+    private static volatile int assetsTotal = 0;
 
     private static final String[] REQUIRED_JRE_FILES = {
             "bin/java",
@@ -239,6 +245,8 @@ public class Installer {
             ConcurrentLinkedQueue<String> failures = new ConcurrentLinkedQueue<>();
             ThreadPoolExecutor tp = new ThreadPoolExecutor(ASSET_DOWNLOAD_THREADS, ASSET_DOWNLOAD_THREADS,
                     100, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<>());
+            assetsChecked.set(0);
+            assetsTotal = objects.size();
             try {
                 for (Map.Entry<String, JsonElement> entry : objects.entrySet()) {
                     tp.execute(new AsyncDownload(entry, gameDir, failures));
@@ -495,7 +503,6 @@ public class Installer {
                         assetFile.delete();
                     }
                     try {
-                        Logger.getInstance().appendToLog("Downloading: " + fileName);
                         DownloadUtils.downloadFile(Constants.MOJANG_RESOURCES_URL + "/" + path, assetFile, 0);
                     } catch (IOException e) {
                         Logger.getInstance().appendToLog(
@@ -515,6 +522,12 @@ public class Installer {
                 // kills the process and the crash never reaches latestlog.
                 failures.add(fileName + " (" + t + ")");
                 Logger.getInstance().appendToLog("Unhandled error while downloading asset " + fileName, t);
+            } finally {
+                int checked = assetsChecked.incrementAndGet();
+                int total = assetsTotal;
+                if (checked % ASSET_PROGRESS_INTERVAL == 0 || checked == total) {
+                    Logger.getInstance().appendToLog("Assets checked: " + checked + "/" + total);
+                }
             }
         }
     }
