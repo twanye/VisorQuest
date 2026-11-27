@@ -21,20 +21,24 @@
       "visor": {
         "slug": "Visor",
         "artifactName": "Visor.jar",
-        "version": "0.4.0+questcraft",
+        "version": "0.6.1+questcraft",
         "assetPath": "mods/Visor.jar",
-        "sha1": "37506cdd6e24b9e9532a2b7963a5f558cedfdbdd",
+        "sha1": "99bd73a4b936df7f7dbbc00a8d05ab3f22fbb794",
+        "size": 5066441,
         "downloadLink": "bundled://visor",
-        "type": "mod"
+        "type": "mod",
+        "source": "Visor-0.6.1+questcraft+mc1.20.1-fabric.jar from CI workflow visor-quest-build.yml run 46069926820 (hark/visor-builds 075a66a), renamed to Visor.jar. Compile-checked only, untested on device."
       },
       "visorEssentials": {
         "slug": "VisorEssentials",
         "artifactName": "VisorEssentials.jar",
-        "version": "0.4.0",
+        "version": "0.6.1+mc1.20.1-fabric",
         "assetPath": "mods/VisorEssentials.jar",
-        "sha1": "ab91a88e5d83bb7def169267006fdf391b40bbf8",
+        "sha1": "474040d7f5e361878b48e423f464f00ac040fffb",
+        "size": 323812,
         "downloadLink": "bundled://visor-essentials",
-        "type": "mod"
+        "type": "mod",
+        "source": "Modrinth R4fBkFEC version 1JGlKuFI (VisorEssentials-0.6.1+mc1.20.1-fabric.jar), renamed to VisorEssentials.jar. Requires visor >=0.6.1. Untested on Quest."
       },
       "bundledMods": [
         {
