@@ -1,5 +1,5 @@
-# Builds the Quest variant of Visor (Fabric) for Minecraft 1.20.1 and 1.21.1 from Visor/, against AtumVR built from AtumVR/.
-# Added by Hark for VisorQuest, matrix extended to 1.21.1 by Claude. Build only: a green run means it compiles, not that it works on a Quest.
+# Builds the Quest variant of Visor (Fabric) for Minecraft 1.20.1, 1.21.1 and 26.2 from Visor/, against AtumVR built from AtumVR/.
+# Added by Hark for VisorQuest, matrix extended to 1.21.1 by Claude and to 26.2 by Perplexity. Build only: a green run means it compiles, not that it works on a Quest.
 #
 # Visor configures every Stonecutter target (14 MC versions x 3 loaders) by default. Each matrix leg
 # trims the targets to one Fabric version inside the CI checkout only (nothing is committed): every
@@ -15,6 +15,7 @@ on:
     branches:
       - hark/visor-builds
       - hark/mc-1.21.1
+      - perplexity/workspace
 
 permissions:
   contents: read
@@ -31,14 +32,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        mc: ["1.20.1", "1.21.1"]
+        mc: ["1.20.1", "1.21.1", "26.2"]
 
     steps:
       - name: Checkout
         uses: actions/checkout@v5
 
       # AtumVR (Gradle 8.4) runs on JDK 17. Visor (Gradle 9.7.1, Loom) runs on JDK 21 and uses
-      # toolchains: 17 for the 1.20.1 target, 21 for 1.21.1, 25 for the 26.3 active version.
+      # toolchains: 17 for the 1.20.1 target, 21 for 1.21.1, 25 for 26.2 and the 26.3 active version.
       - name: Set up JDK 17, 25 and JDK 21 (default)
         uses: actions/setup-java@v5
         with:
