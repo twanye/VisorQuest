@@ -1,0 +1,85 @@
+{
+  "schemaVersion": 1,
+  "versions": [
+    {
+      "id": "1.20.1",
+      "javaMajor": 17,
+      "fabricLoaderVersion": "0.20.1",
+      "visor": {
+        "slug": "Visor",
+        "artifactName": "Visor.jar",
+        "version": "0.4.0+questcraft",
+        "assetPath": "mods/Visor.jar",
+        "sha1": "37506cdd6e24b9e9532a2b7963a5f558cedfdbdd",
+        "downloadLink": "bundled://visor"
+      },
+      "visorEssentials": {
+        "slug": "VisorEssentials",
+        "artifactName": "VisorEssentials.jar",
+        "version": "0.4.0",
+        "assetPath": "mods/VisorEssentials.jar",
+        "sha1": "ab91a88e5d83bb7def169267006fdf391b40bbf8",
+        "downloadLink": "bundled://visor-essentials"
+      },
+      "bundledMods": [
+        {
+          "slug": "MoreCulling",
+          "artifactName": "MoreCulling.jar",
+          "version": "1.20.1-0.24.5",
+          "assetPath": "mods/MoreCulling.jar",
+          "sha1": "5110436d5f7867033744d2c065c44986730d79aa",
+          "downloadLink": "bundled://more-culling",
+          "type": "mod"
+        },
+        {
+          "slug": "Noisium",
+          "artifactName": "Noisium.jar",
+          "version": "2.3.0+mc1.20-1.20.1",
+          "assetPath": "mods/Noisium.jar",
+          "sha1": "be85535cf1efe82bd8c41bcf851becaad498a598",
+          "downloadLink": "bundled://noisium",
+          "type": "mod"
+        },
+        {
+          "slug": "BadOptimizations",
+          "artifactName": "BadOptimizations.jar",
+          "version": "2.4.1",
+          "assetPath": "mods/BadOptimizations.jar",
+          "sha1": "304007dcb0fb15ed1a1bc3771736470dafc5be0f",
+          "downloadLink": "bundled://bad-optimizations",
+          "type": "mod"
+        },
+        {
+          "slug": "Chunky",
+          "artifactName": "Chunky.jar",
+          "version": "1.3.146",
+          "assetPath": "mods/Chunky.jar",
+          "sha1": "b5672d69dc2b210ab2165a27afc03a424fa2b46a",
+          "downloadLink": "bundled://chunky",
+          "type": "mod"
+        },
+        {
+          "slug": "C2ME",
+          "artifactName": "C2ME.jar",
+          "version": "0.2.0+alpha.11.18+1.20.1",
+          "assetPath": "mods/C2ME.jar",
+          "sha1": "ffeeafb265d7f0914e9b96ab70a1181d3642773a",
+          "downloadLink": "bundled://c2me",
+          "type": "mod"
+        }
+      ],
+      "downloadedMods": [
+        {
+          "slug": "ImmediatelyFast",
+          "artifactName": "ImmediatelyFast.jar",
+          "version": "1.5.5+1.20.4",
+          "url": "https://cdn.modrinth.com/data/5ZwdcRci/versions/iwYUrQJO/ImmediatelyFast-Fabric-1.5.5%2B1.20.4.jar",
+          "sha1": "9f0110b60dc752ca093f2fc10a72d221b6dc8ac3",
+          "size": 348818,
+          "type": "mod"
+        }
+      ],
+      "lwjglBundleId": "3.3.3-snapshot"
+    }
+  ]
+}

@@ -6,9 +6,17 @@ import android.content.Context;
 import org.apache.commons.io.FileUtils;
 
 import java.io.*;
+import java.nio.file.FileVisitOption;
+import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.SimpleFileVisitor;
+import java.nio.file.attribute.BasicFileAttributes;
+import java.nio.file.attribute.PosixFilePermission;
 import java.nio.file.Paths;
 import java.util.Enumeration;
+import java.util.EnumSet;
+import java.util.Set;
 import java.util.Objects;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
@@ -201,5 +209,36 @@ public class FileUtil {
         File parentFile = targetFile.getParentFile();
         if(parentFile == null) throw new IOException("targetFile does not have a parent");
         ensureDirectory(parentFile);
+    }
+
+    /**
+     * Restores the file permissions used by the launcher for installed instance files.
+     * Symbolic links are not followed and directory permissions are left unchanged.
+     */
+    public static void fixDirectoryPermissions(File targetDir) throws IOException {
+        if (targetDir == null || !targetDir.exists()) return;
+        if (!targetDir.isDirectory()) throw new IOException("Instance data path is not a directory: " + targetDir);
+
+        final Set<PosixFilePermission> expectedPermissions = EnumSet.of(
+                PosixFilePermission.OWNER_READ,
+                PosixFilePermission.OWNER_WRITE,
+                PosixFilePermission.OWNER_EXECUTE,
+                PosixFilePermission.GROUP_READ,
+                PosixFilePermission.GROUP_WRITE
+        );
+
+        Files.walkFileTree(targetDir.toPath(), EnumSet.noneOf(FileVisitOption.class), 12,
+                new SimpleFileVisitor<Path>() {
+                    @Override
+                    public FileVisitResult visitFile(Path file, BasicFileAttributes attributes) throws IOException {
+                        if (attributes.isRegularFile()) {
+                            Set<PosixFilePermission> currentPermissions = Files.getPosixFilePermissions(file);
+                            if (!currentPermissions.equals(expectedPermissions)) {
+                                Files.setPosixFilePermissions(file, expectedPermissions);
+                            }
+                        }
+                        return FileVisitResult.CONTINUE;
+                    }
+                });
     }
 }

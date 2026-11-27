@@ -28,6 +28,7 @@ import pojlib.install.Installer;
 import pojlib.install.MinecraftMeta;
 import pojlib.install.QuiltMeta;
 import pojlib.install.VersionInfo;
+import pojlib.install.VisorVersionTable;
 import pojlib.util.Constants;
 import pojlib.util.FileUtil;
 import pojlib.util.VLoader;
@@ -41,8 +42,8 @@ import pojlib.util.Logger;
 import pojlib.util.json.ModrinthIndexJson;
 
 public class InstanceHandler {
-    public static final String MODS = "https://raw.githubusercontent.com/QuestCraftPlusPlus/Pojlib/refs/heads/" + Constants.GIT_BRANCH + "/mods.json";
-    public static final String DEV_MODS = "https://raw.githubusercontent.com/QuestCraftPlusPlus/Pojlib/refs/heads/" + Constants.GIT_BRANCH + "/devmods.json";
+    public static final String MODS = Constants.UPSTREAM_QUESTCRAFT_MANIFEST_BASE_URL + "mods.json";
+    public static final String DEV_MODS = Constants.UPSTREAM_QUESTCRAFT_MANIFEST_BASE_URL + "devmods.json";
 
     public static MinecraftInstances.Instance create(Activity activity, MinecraftInstances instances, String instanceName, String userHome, String modLoader, String mrpackFilePath, String imageURL) {
         File mrpackJson = new File(Constants.USER_HOME + "/instances/" + instanceName.toLowerCase(Locale.ROOT).replaceAll(" ", "_") + "/setup/modrinth.index.json");
@@ -143,8 +144,19 @@ public class InstanceHandler {
         VersionInfo modLoaderVersionInfo = null;
         switch (modLoader) {
             case "Fabric": {
-                FabricMeta.FabricVersion fabricVersion = FabricMeta.getLatestVersion();
-                assert fabricVersion != null;
+                String pinnedLoaderVersion = null;
+                try {
+                    VisorVersionTable.VersionEntry versionEntry = VisorVersionTable.find(activity, minecraftVersion);
+                    if (versionEntry != null) pinnedLoaderVersion = versionEntry.fabricLoaderVersion;
+                } catch (IOException exception) {
+                    Logger.getInstance().appendToLog("Unable to read pinned Fabric loader version: " + exception);
+                }
+
+                FabricMeta.FabricVersion fabricVersion = FabricMeta.getVersionForMinecraftVersion(
+                        minecraftVersion, pinnedLoaderVersion);
+                if (fabricVersion == null) {
+                    throw new IllegalStateException("No stable Fabric loader is available for Minecraft " + minecraftVersion);
+                }
                 modLoaderVersionInfo = FabricMeta.getVersionInfo(fabricVersion, minecraftVersion);
                 break;
             }
