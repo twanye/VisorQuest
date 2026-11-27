@@ -1,0 +1,106 @@
+# Builds the Quest variant of Visor for Minecraft 1.20.1 (Fabric) from Visor/, against AtumVR built from AtumVR/.
+# Added by Hark for VisorQuest. Build only: a green run means it compiles, not that it works on a Quest.
+#
+# Visor configures every Stonecutter target (14 MC versions x 3 loaders) by default. This job trims
+# the targets to 1.20.1 Fabric inside the CI checkout only (nothing is committed): the [targets]
+# table keeps "1.20.1" = ["fabric"] plus "26.3" = [] (26.3 is the Stonecutter active/vcs version,
+# so it stays in the tree for visor-api/visor-core), and the forge/neoforge branches are dropped.
+name: Build Visor Quest (1.20.1 Fabric)
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - hark/visor-builds
+
+permissions:
+  contents: read
+
+concurrency:
+  group: visor-quest-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      # AtumVR (Gradle 8.4) runs on JDK 17. Visor (Gradle 9.7.1, Loom) runs on JDK 21 and uses
+      # toolchains: 17 for the 1.20.1 target, 25 for the 26.3 active version.
+      - name: Set up JDK 17, 25 and JDK 21 (default)
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: |
+            17
+            25
+            21
+
+      - name: Set up Gradle cache
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: false
+
+      - name: Build AtumVR (api + core jars)
+        working-directory: AtumVR
+        env:
+          JAVA_HOME: ${{ env.JAVA_HOME_17_X64 }}
+        run: |
+          chmod +x ./gradlew
+          ./gradlew :atumvr-api:jar :atumvr-core:jar --stacktrace --no-daemon
+          ls -l atumvr-api/build/libs atumvr-core/build/libs
+
+      - name: Copy AtumVR jars into Visor/libs
+        run: |
+          set -euo pipefail
+          api=$(ls AtumVR/atumvr-api/build/libs/atumvr-api-*.jar | grep -v -- '-all\.jar$' | head -n1)
+          core=$(ls AtumVR/atumvr-core/build/libs/atumvr-core-*.jar | grep -v -- '-all\.jar$' | head -n1)
+          cp "$api" Visor/libs/atumvr-api-quest.jar
+          cp "$core" Visor/libs/atumvr-core-quest.jar
+          ls -l Visor/libs
+
+      - name: Restrict Stonecutter targets to 1.20.1 Fabric (CI checkout only)
+        working-directory: Visor
+        run: |
+          python3 - <<'EOF'
+          import re
+          p = "stonecutter.properties.toml"
+          s = open(p, encoding="utf-8").read()
+          s, n = re.subn(r'(?ms)^\[targets\]\n.*?(?=^# ---- Version dependencies)',
+                         '[targets]\n"1.20.1" = ["fabric"]\n"26.3" = []\n\n', s)
+          assert n == 1, "could not find the [targets] table"
+          open(p, "w", encoding="utf-8", newline="\n").write(s)
+
+          p = "settings.gradle"
+          s = open(p, encoding="utf-8").read()
+          for loader in ("forge", "neoforge"):
+              s, n = re.subn(r'(?m)^\s*branch\("visor-%s"\).*\n' % loader, '', s)
+              assert n == 1, "could not drop the visor-%s branch" % loader
+          open(p, "w", encoding="utf-8", newline="\n").write(s)
+          EOF
+          sed -n '/^\[targets\]/,/^# ----/p' stonecutter.properties.toml
+          grep -n 'branch(' settings.gradle
+
+      - name: Build Visor (Quest, 1.20.1 Fabric)
+        working-directory: Visor
+        run: |
+          chmod +x ./gradlew
+          ./gradlew -Pvisor_quest=true :visor-fabric:1.20.1:buildAndCollect \
+            --stacktrace --no-daemon \
+            "-Dorg.gradle.jvmargs=-Xmx10G -XX:MaxMetaspaceSize=2G -XX:+HeapDumpOnOutOfMemoryError" \
+            -Porg.gradle.java.installations.fromEnv=JAVA_HOME_17_X64,JAVA_HOME_21_X64,JAVA_HOME_25_X64
+          ls -l build/libs visor-fabric/versions/1.20.1/build/libs || true
+
+      - name: Upload Visor + AtumVR jars
+        uses: actions/upload-artifact@v4
+        with:
+          name: visor-quest-1.20.1-${{ github.sha }}
+          path: |
+            Visor/build/libs/*.jar
+            AtumVR/atumvr-api/build/libs/*.jar
+            AtumVR/atumvr-core/build/libs/*.jar
+          if-no-files-found: error
