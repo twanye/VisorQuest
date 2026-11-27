@@ -2,9 +2,11 @@
 # Added by Hark for VisorQuest. Build only: a green run means it compiles, not that it works on a Quest.
 #
 # Visor configures every Stonecutter target (14 MC versions x 3 loaders) by default. This job trims
-# the targets to 1.20.1 Fabric inside the CI checkout only (nothing is committed): the [targets]
-# table keeps "1.20.1" = ["fabric"] plus "26.3" = [] (26.3 is the Stonecutter active/vcs version,
-# so it stays in the tree for visor-api/visor-core), and the forge/neoforge branches are dropped.
+# the targets to 1.20.1 Fabric inside the CI checkout only (nothing is committed): every version
+# stays in the [targets] table (visor-core's mcversion range files must name real visor-core
+# targets), but only "1.20.1" keeps a loader ("fabric"); the forge/neoforge branches are dropped;
+# and Gradle runs with --configure-on-demand so only the projects the 1.20.1 Fabric build needs
+# (visor-api/visor-core/visor-fabric 1.20.1) set up a Minecraft jar.
 name: Build Visor Quest (1.20.1 Fabric)
 
 on:
@@ -70,9 +72,12 @@ jobs:
           import re
           p = "stonecutter.properties.toml"
           s = open(p, encoding="utf-8").read()
-          s, n = re.subn(r'(?ms)^\[targets\]\n.*?(?=^# ---- Version dependencies)',
-                         '[targets]\n"1.20.1" = ["fabric"]\n"26.3" = []\n\n', s)
-          assert n == 1, "could not find the [targets] table"
+          m = re.search(r'(?ms)^\[targets\]\n(.*?)(?=^# ---- Version dependencies)', s)
+          assert m, "could not find the [targets] table"
+          versions = re.findall(r'(?m)^"([^"]+)"\s*=', m.group(1))
+          assert "1.20.1" in versions, "1.20.1 is not a target"
+          table = "".join('"%s" = %s\n' % (v, '["fabric"]' if v == "1.20.1" else "[]") for v in versions)
+          s = s[:m.start(1)] + table + "\n" + s[m.end(1):]
           open(p, "w", encoding="utf-8", newline="\n").write(s)
 
           p = "settings.gradle"
@@ -90,7 +95,7 @@ jobs:
         run: |
           chmod +x ./gradlew
           ./gradlew -Pvisor_quest=true :visor-fabric:1.20.1:buildAndCollect \
-            --stacktrace --no-daemon \
+            --stacktrace --no-daemon --configure-on-demand \
             "-Dorg.gradle.jvmargs=-Xmx10G -XX:MaxMetaspaceSize=2G -XX:+HeapDumpOnOutOfMemoryError" \
             -Porg.gradle.java.installations.fromEnv=JAVA_HOME_17_X64,JAVA_HOME_21_X64,JAVA_HOME_25_X64
           ls -l build/libs visor-fabric/versions/1.20.1/build/libs || true
