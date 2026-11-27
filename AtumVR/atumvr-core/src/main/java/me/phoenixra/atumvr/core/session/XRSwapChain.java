@@ -60,12 +60,18 @@ public class XRSwapChain {
 
             long chosenFormat = pickSwapchainFormat(session, stack);
 
+            // fixed foveated rendering on Quest (coah80/AtumVR 1d7dd401), applied to every eye swapchain
+            boolean foveated = isFoveationSupported(session);
             this.handles = new XrSwapchain[viewCount];
             for (int i = 0; i < viewCount; i++) {
-                handles[i] = createSwapchain(session, viewConfigs.get(i), chosenFormat, stack);
+                handles[i] = createSwapchain(session, viewConfigs.get(i), chosenFormat, foveated, stack);
             }
             this.eyeWidth = viewConfigs.get(0).recommendedImageRectWidth();
             this.eyeHeight = viewConfigs.get(0).recommendedImageRectHeight();
+
+            if (foveated) {
+                applyFoveationLevel(session, stack);
+            }
 
             // persistent view buffer on heap
             this.xrViewBuffer = XrView.calloc(viewCount);
@@ -149,12 +155,78 @@ public class XRSwapChain {
         throw new IllegalStateException("No compatible swapchain format found: " + available);
     }
 
+    private boolean isFoveationSupported(XrSession session) {
+        var caps = session.getCapabilities();
+        return XRPlatform.isAndroid()
+                && caps.XR_FB_foveation
+                && caps.XR_FB_foveation_configuration
+                && caps.XR_FB_swapchain_update_state
+                && vrProvider.getFoveationLevel()
+                        != FBFoveationConfiguration.XR_FOVEATION_LEVEL_NONE_FB;
+    }
+
+    private void applyFoveationLevel(XrSession session, MemoryStack stack) {
+        int level = vrProvider.getFoveationLevel();
+
+        XrFoveationLevelProfileCreateInfoFB levelInfo = XrFoveationLevelProfileCreateInfoFB.calloc(stack)
+                .type(FBFoveationConfiguration.XR_TYPE_FOVEATION_LEVEL_PROFILE_CREATE_INFO_FB)
+                .level(level)
+                .verticalOffset(0f)
+                .dynamic(FBFoveationConfiguration.XR_FOVEATION_DYNAMIC_LEVEL_ENABLED_FB);
+
+        XrFoveationProfileCreateInfoFB profileInfo = XrFoveationProfileCreateInfoFB.calloc(stack)
+                .type(FBFoveation.XR_TYPE_FOVEATION_PROFILE_CREATE_INFO_FB)
+                .next(levelInfo);
+
+        PointerBuffer profilePtr = stack.callocPointer(1);
+        vrProvider.checkXRError(
+                FBFoveation.xrCreateFoveationProfileFB(session, profileInfo, profilePtr),
+                "xrCreateFoveationProfileFB", ""
+        );
+        XrFoveationProfileFB profile = new XrFoveationProfileFB(profilePtr.get(0), session);
+
+        XrSwapchainStateFoveationFB foveationState = XrSwapchainStateFoveationFB.calloc(stack)
+                .type(FBFoveation.XR_TYPE_SWAPCHAIN_STATE_FOVEATION_FB)
+                .flags(0)
+                .profile(profile);
+
+        // 1.14 has one swapchain per eye (coah's base had one), so the profile goes on each of them
+        for (XrSwapchain handle : handles) {
+            vrProvider.checkXRError(
+                    FBSwapchainUpdateState.xrUpdateSwapchainFB(
+                            handle,
+                            XrSwapchainStateBaseHeaderFB.create(foveationState)
+                    ),
+                    "xrUpdateSwapchainFB", "foveation"
+            );
+        }
+
+        vrProvider.checkXRError(false,
+                FBFoveation.xrDestroyFoveationProfileFB(profile),
+                "xrDestroyFoveationProfileFB", "ignoring"
+        );
+
+        vrProvider.getLogger().logInfo(
+                "Fixed foveated rendering enabled, level " + level
+        );
+    }
+
     private XrSwapchain createSwapchain(
             XrSession session,
             XrViewConfigurationView viewConfig,
             long format,
+            boolean foveated,
             MemoryStack stack)
     {
+        long next = NULL;
+        if (foveated) {
+            next = XrSwapchainCreateInfoFoveationFB.calloc(stack)
+                    .type(FBFoveation.XR_TYPE_SWAPCHAIN_CREATE_INFO_FOVEATION_FB)
+                    .next(NULL)
+                    .flags(FBFoveation.XR_SWAPCHAIN_CREATE_FOVEATION_SCALED_BIN_BIT_FB)
+                    .address();
+        }
+
         long usageFlags = XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT;
         if (vrProvider.getSession().getGraphicsApi() == XRGraphicsApi.VULKAN) {
             //the bridge copies into the swapchain image instead of rendering to it
@@ -162,7 +234,7 @@ public class XRSwapChain {
         }
         XrSwapchainCreateInfo info = XrSwapchainCreateInfo.calloc(stack)
                 .type(XR_TYPE_SWAPCHAIN_CREATE_INFO)
-                .next(NULL)
+                .next(next)
                 .usageFlags(usageFlags)
                 .format(format)
                 .sampleCount(1)

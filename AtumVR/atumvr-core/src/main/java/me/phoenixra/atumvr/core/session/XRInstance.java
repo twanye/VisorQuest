@@ -99,7 +99,7 @@ public class XRInstance {
 
             this.handle = new XrInstance(instancePointer.get(0), instInfo);
 
-            if(handle.getCapabilities().XR_EXT_debug_utils) {
+            if(!XRPlatform.isAndroid() && handle.getCapabilities().XR_EXT_debug_utils) {
                 setupDebugMessenger(vrProvider, stack);
             }
 
@@ -157,10 +157,21 @@ public class XRInstance {
         // 2) Define desired extensions in priority order
         List<String> desiredExtensions = new ArrayList<>(requiredExtensions(graphicsApi));
         desiredExtensions.addAll(List.of(
-                EXTDebugUtils.XR_EXT_DEBUG_UTILS_EXTENSION_NAME,
                 FBDisplayRefreshRate.XR_FB_DISPLAY_REFRESH_RATE_EXTENSION_NAME,
-                KHRVisibilityMask.XR_KHR_VISIBILITY_MASK_EXTENSION_NAME //@TODO test mask for performance improvements
+                KHRVisibilityMask.XR_KHR_VISIBILITY_MASK_EXTENSION_NAME,
+
+                // Quest runtime extensions (coah80/AtumVR 1d7dd401); each is only enabled when the runtime offers it
+                EXTLocalFloor.XR_EXT_LOCAL_FLOOR_EXTENSION_NAME,
+                EXTPerformanceSettings.XR_EXT_PERFORMANCE_SETTINGS_EXTENSION_NAME,
+                FBColorSpace.XR_FB_COLOR_SPACE_EXTENSION_NAME,
+                FBFoveation.XR_FB_FOVEATION_EXTENSION_NAME,
+                FBFoveationConfiguration.XR_FB_FOVEATION_CONFIGURATION_EXTENSION_NAME,
+                FBSwapchainUpdateState.XR_FB_SWAPCHAIN_UPDATE_STATE_EXTENSION_NAME
         ));
+        // no debug utils messenger on Android (coah80/AtumVR 1d7dd401)
+        if (!XRPlatform.isAndroid()) {
+            desiredExtensions.add(EXTDebugUtils.XR_EXT_DEBUG_UTILS_EXTENSION_NAME);
+        }
         desiredExtensions.addAll(vrProvider.getXRAppExtensions());
 
         // Keep only what the runtime offers, preserving priority order and dropping duplicates
