@@ -255,6 +255,17 @@ public class JREUtils {
         chdir(instance.gameDir);
         userArgs.add(0,"java"); //argv[0] is the program name according to C standard.
 
+        // A null entry here crashes natively inside JLI_Launch (SIGSEGV, no Java stack trace),
+        // so fail early with a message that names the missing argument.
+        for (int i = 0; i < userArgs.size(); i++) {
+            if (userArgs.get(i) == null) {
+                String previous = i > 0 ? userArgs.get(i - 1) : "(start)";
+                String message = "Launch argument " + i + " is null, after " + previous;
+                Logger.getInstance().appendToLog(message);
+                throw new IllegalStateException(message);
+            }
+        }
+
         int exitCode = VMLauncher.launchJVM(userArgs.toArray(new String[0]));
         Logger.getInstance().appendToLog("Java Exit code: " + exitCode);
         return exitCode;
