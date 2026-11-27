@@ -342,3 +342,57 @@ Next steps (the original task list):
 4. Launch-arg/asset-index/`"1.20.1"` hard-code audit against the Mojang 1.21.1 JSON.
 5. APK build (`quest-apk.yml` on `hark/ci-quest-apk`, `pojlib_ref=hark/mc-1.21.1`), then the draft PR
    into `hark/visor-builds` ("MC 1.21.1 Quest build (Hark, untested)").
+
+## 1.21.1 and 26.2 (branch `perplexity/workspace`, Perplexity, 2026-11-27)
+
+> Everything below **builds** (CI) and passed static checks. **Nothing has been run on a Quest.**
+> questReady is true for both so the launcher offers them for testing.
+
+Branch `perplexity/workspace` starts from `hark/mc-1.21.1` @ `69dfc2d` (Tucker's CI matrix).
+
+### 1.21.1
+- `mods/1.21.1/Visor.jar` = `Visor-0.6.1+questcraft+mc1.21.1-fabric.jar` from `visor-quest-build.yml`
+  run 46077982516 (SHA-1 `db4b3db1…`). `mods/1.21.1/VisorEssentials.jar` = Modrinth `xcYlq5Zb`
+  (SHA-1 `e5641e7a…`). Default runtime: runtimes/JRE (JRE 22 meets Java 21), LightThinWrapper,
+  `lwjgl-glfw-classes.jar`.
+- No VisorQuest perf mods: upstream mods.json `defaultMods` for 1.21.1 already covers them.
+- JNA: 1.21.1 ships JNA 5.14 (native API 7.0.x); the existing `libjnidispatch.so` is 6.1.2 (kept for
+  1.20.1's JNA 5.12.1). 1.21.1 now passes `-Djna.boot.library.name=jnidispatch704` to load the new
+  `libjnidispatch704.so` (JNA native 7.0.4, same binary as QuestCraftPlusPlus/Pojlib QuestCraft-6.0.1).
+- Static scans: Visor/VE references resolve (only off-path `org.lwjgl.vulkan`).
+
+### 26.2
+- Visor fix `f4d353f`: `VRRendererBase` used `MC.screen`/`MC.getOverlay()`, which moved to `Gui` in
+  26.2; it now uses the existing `McVersionClientUtils.screen()/overlay()` helpers (same field/method
+  below 26.2).
+- `mods/26.2/Visor.jar` = `Visor-0.6.1+questcraft+mc26.2-fabric.jar` from run 46081665517 (SHA-1
+  `97f9945f…`): Quest XR classes, nests `lwjgl-openxr-quest-3.3.3`, no nested lwjgl-vulkan,
+  `minecraft >=26.2 <26.3`, `java >=25`, needs `fabric-api`. VE `0.6.1+mc26.2-fabric` = Modrinth
+  `AgBlduJ0` (SHA-1 `3dafec24…`).
+- Runtime, all from the new optional versions.json fields (`RuntimeProfile`):
+  - `runtime`: JRE 25 (OpenJDK 25.0.4.1.1, `JRE25.zip` from MisterEnglishDev/QuestCraftPlus-Pojlib
+    release `jre25-android-arm64`, SHA-256 checked) installed in `runtimes/JRE-25` next to `runtimes/JRE`.
+  - `renderer: MobileGlues`: `POJLIB_RENDERER=MobileGLUES`, `MG_DIR_PATH=<filesDir>/mg`,
+    `egl_bridge.c` dlopens `libmobileglues.so` (from QuestCraft-6.0.1). The pbuffer EGL path is kept;
+    QuestCraft 6.0.1 uses `EGL_NO_SURFACE` with MobileGlues, try that first if EGL setup fails.
+  - `lwjglAssetPath`: `lwjgl-glfw-classes-26.jar` (3.3.3 shim + QuestCraftPlus+ GLFW 3.4 / IME /
+    MemoryUtil / STB patches; rebuild with `jarMc26` or `tools/build_mc26_jar.py`).
+    `lwjglVulkanClasses`: keeps `org.lwjgl:lwjgl-vulkan` Java classes (no natives), since the 26.2 client
+    constructs its Vulkan backend class; OpenGL is tried first.
+  - `extraJvmArgs`: `--sun-misc-unsafe-memory-access=allow`, `--enable-native-access=ALL-UNNAMED`
+    (vanilla 26.2 flags), `-Djna.boot.library.name=jnidispatch704` (JNA 5.17). `-XX:+ZGenerational` is
+    only passed on the default JRE (obsolete in JDK 24+).
+  - `installFabricApi`: upstream mods.json has no 26.2 entry, so Fabric API 0.161.0+26.2 (Modrinth
+    `ewUK83HI`) is installed from versions.json unless another fabric-api jar is already present.
+- Static scans: all non-Vulkan LWJGL refs in the 26.2 Visor jar resolve against the 26 bundle + nested
+  OpenXR jar; Vulkan refs resolve against lwjgl-vulkan 3.4.1. MC 26.2 client vs the 26 bundle: only
+  `SOFTSystemEvents` (OpenAL, capability-guarded) and `tinyfd_messageBox(CharSequence)` (crash dialog).
+- 1.20.1: entries without the new fields resolve to the old hard-coded values (runtimes/JRE,
+  `lwjgl-glfw-classes.jar`, `libltw.so`, same JVM flags), so it launches as before.
+
+### Not done / untested
+- No device test of either version; no Quest APK build yet (`quest-apk.yml` on `hark/ci-quest-apk`,
+  `pojlib_ref=perplexity/workspace`, needs the Unity secrets).
+- JRE25.zip has no published build source yet: fine for testing, needs sorting before a public release.
+- 26.x Quest options defaults (QuestCraftPlus+ `a078860`: simulationDistance 5, gamma 0) not applied.
+- 26.3 (SDL3) not started.
