@@ -10,10 +10,15 @@ dependencies {
     modApi "net.fabricmc.fabric-api:fabric-api:${fabricApiVersion}"
 
     // Natives
-    include(implementation("org.lwjgl:lwjgl-openxr:${lwjgl_version}") { transitive = false })
-    include(implementation("org.lwjgl:lwjgl-openxr:${lwjgl_version}:natives-linux") { transitive = false })
-    include(implementation("org.lwjgl:lwjgl-openxr:${lwjgl_version}:natives-linux-arm64") { transitive = false })
-    include(implementation("org.lwjgl:lwjgl-openxr:${lwjgl_version}:natives-windows") { transitive = false })
+    if (questBuild) {
+        // Quest: QuestCraft's LWJGL OpenXR 3.3.3 (Android classes, no desktop natives). Ported from coah80/Visor a0275017.
+        include(implementation(name: "lwjgl-openxr-quest-3.3.3"))
+    } else {
+        include(implementation("org.lwjgl:lwjgl-openxr:${lwjgl_version}") { transitive = false })
+        include(implementation("org.lwjgl:lwjgl-openxr:${lwjgl_version}:natives-linux") { transitive = false })
+        include(implementation("org.lwjgl:lwjgl-openxr:${lwjgl_version}:natives-linux-arm64") { transitive = false })
+        include(implementation("org.lwjgl:lwjgl-openxr:${lwjgl_version}:natives-windows") { transitive = false })
+    }
     if (bundlesVulkan) {
         include(implementation("org.lwjgl:lwjgl-vulkan:${lwjgl_version}") { transitive = false })
     }

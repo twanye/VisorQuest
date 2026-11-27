@@ -5,6 +5,7 @@ import me.phoenixra.atumvr.api.exceptions.AtumVRException;
 import me.phoenixra.atumvr.core.XRProvider;
 import me.phoenixra.atumvr.core.enums.XRGraphicsApi;
 import me.phoenixra.atumvr.core.session.opengl.XROpenGLBinding;
+import me.phoenixra.atumvr.core.session.platform.XRPlatform;
 import org.jetbrains.annotations.NotNull;
 import org.lwjgl.PointerBuffer;
 import org.lwjgl.opengl.GL;
@@ -62,6 +63,9 @@ public class XRInstance {
     public void init() {
         try (MemoryStack stack = MemoryStack.stackPush()) {
 
+            // Quest/Android: initialise the OpenXR loader first (no-op on desktop). Ported from coah80/AtumVR d04c1669.
+            XRPlatform.get().initializeLoader(stack);
+
             var extensionsPointer = setupExtensions(
                     vrProvider, stack
             );
@@ -77,7 +81,7 @@ public class XRInstance {
             // 2) Create XrInstanceCreateInfo
             var instInfo = XrInstanceCreateInfo.calloc(stack)
                     .type(XR10.XR_TYPE_INSTANCE_CREATE_INFO)
-                    .next(0)
+                    .next(XRPlatform.get().getInstanceCreateInfo(stack))
                     .applicationInfo(appInfo)
                     .enabledExtensionNames(extensionsPointer)
                     .enabledApiLayerNames(null);
@@ -142,7 +146,9 @@ public class XRInstance {
         availableExtensions = Set.copyOf(available);
 
 
-        glContextApi = XROpenGLBinding.detectContextApi();
+        // On Android the context is EGL/GLES and is bound through XR_KHR_opengl_es_enable
+        // (XRPlatform.Android), not through one of the desktop OpenGL context APIs.
+        glContextApi = XRPlatform.get().usesAndroidBridge() ? null : XROpenGLBinding.detectContextApi();
         graphicsApi = resolveGraphicsApi();
         vrProvider.getLogger().logInfo(
                 "Graphics API: " + graphicsApi + ", OpenGL context: " + glContextApi
@@ -185,6 +191,14 @@ public class XRInstance {
 
 
     private XRGraphicsApi resolveGraphicsApi() {
+        if (XRPlatform.get().usesAndroidBridge()) {
+            // Quest: the app renders with OpenGL ES; there is no Vulkan bridge on this path.
+            List<String> missing = missingExtensions(XRGraphicsApi.OPENGL);
+            if (!missing.isEmpty()) {
+                throw new AtumVRException("Missing required graphics extension: " + missing);
+            }
+            return XRGraphicsApi.OPENGL;
+        }
         XRGraphicsApi forced = vrProvider.getGraphicsApiPreference();
         if (forced != null) {
             List<String> missing = missingExtensions(forced);
@@ -231,6 +245,9 @@ public class XRInstance {
 
 
     private List<String> requiredExtensions(XRGraphicsApi api) {
+        if (api == XRGraphicsApi.OPENGL && XRPlatform.get().usesAndroidBridge()) {
+            return List.of(XRPlatform.get().getGraphicsExtension());
+        }
         String bindingExtension = api == XRGraphicsApi.OPENGL && glContextApi != null
                 ? glContextApi.getExtensionName()
                 : null;

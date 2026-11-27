@@ -15,7 +15,10 @@ dependencies {
     api("org.lwjgl:lwjgl")
     api("org.lwjgl:lwjgl-opengl")
     api("org.lwjgl:lwjgl-glfw")
-    api("org.lwjgl:lwjgl-openxr")
+    // Quest: QuestCraft's LWJGL OpenXR 3.3.3 build, which adds the Android-only classes
+    // (KHR_loader_init_android, KHR_android_create_instance, KHR_opengl_es_enable) that
+    // XRPlatform.Android needs. Same jar coah80 used (coah80/Visor 32c80265 libs/). Ported from coah80/AtumVR d04c1669.
+    api files("${rootDir}/../deps/lwjgl-openxr-quest-3.3.3.jar")
     api("org.lwjgl:lwjgl-vulkan")
 
     api("org.lwjgl:lwjgl::natives-windows")
