@@ -102,7 +102,7 @@
     },
     {
       "id": "1.21.1",
-      "questReady": false,
+      "questReady": true,
       "javaMajor": 21,
       "fabricLoaderVersion": "0.20.1",
       "fabricApi": {
@@ -118,30 +118,29 @@
       "visor": {
         "slug": "Visor",
         "artifactName": "Visor.jar",
-        "version": "0.6.1+mc1.21.1-fabric",
-        "assetPath": null,
-        "url": null,
-        "sha1": null,
-        "size": 0,
-        "downloadLink": null,
+        "version": "0.6.1+questcraft",
+        "assetPath": "mods/1.21.1/Visor.jar",
+        "sha1": "db4b3db1eae163253f4bb4a982418b5df4c21f6b",
+        "size": 5076880,
+        "downloadLink": "bundled://visor",
         "type": "mod",
-        "todo": "TODO(User): no Quest build of Visor for 1.21.1 exists yet (needs P1: coah80's Quest patches ported to Visor 0.6.1 / AtumVR 1.14). Upstream Modrinth jar FJN2Te69 (Visor-0.6.1+mc1.21.1-fabric.jar, sha1 5215f85800f3ce5b5dc181846d5111fb7748ee4c) has no Android/Quest code and must not be used. Fill assetPath/url, sha1 and size from the real Quest build, then set questReady to true."
+        "source": "Visor-0.6.1+questcraft+mc1.21.1-fabric.jar from CI workflow visor-quest-build.yml run 46077982516 (hark/mc-1.21.1 69dfc2d), renamed to Visor.jar. MC >=1.21 <1.21.2, Java >=21, no nested lwjgl-vulkan. Compile-checked only, untested on device."
       },
       "visorEssentials": {
         "slug": "VisorEssentials",
         "artifactName": "VisorEssentials.jar",
         "version": "0.6.1+mc1.21.1-fabric",
-        "url": "https://cdn.modrinth.com/data/R4fBkFEC/versions/xcYlq5Zb/VisorEssentials-0.6.1%2Bmc1.21.1-fabric.jar",
+        "assetPath": "mods/1.21.1/VisorEssentials.jar",
         "sha1": "e5641e7a1485032c74b4f837705e6abd438256d6",
         "size": 346346,
-        "downloadLink": "https://cdn.modrinth.com/data/R4fBkFEC/versions/xcYlq5Zb/VisorEssentials-0.6.1%2Bmc1.21.1-fabric.jar",
+        "downloadLink": "bundled://visor-essentials",
         "type": "mod",
-        "todo": "Stock Modrinth build (VisorEssentials has no Android code); untested on Quest. Requires visor >= 0.6.1."
+        "source": "Modrinth R4fBkFEC version xcYlq5Zb (VisorEssentials-0.6.1+mc1.21.1-fabric.jar), renamed to VisorEssentials.jar. Requires visor >=0.6.1. Untested on Quest."
       },
       "bundledMods": [],
       "downloadedMods": [],
-      "perfModsTodo": "TODO(User): no VisorQuest perf mods pinned for 1.21.1. Upstream QuestCraft mods.json defaultMods for 1.21.1 already lists Noisium, MoreCulling, BadOptimizations and ImmediatelyFast; C2ME and Chunky are not added. Decide per mod after a device test.",
-      "lwjglBundleId": "3.3.3-snapshot"
+      "lwjglBundleId": "3.3.3-snapshot",
+      "perfModsNote": "No VisorQuest-bundled perf mods for 1.21.1: upstream QuestCraft mods.json (QuestCraft-6.0.0) defaultMods for 1.21.1 already installs Sodium, ModernFix, Noisium, Lithium, MoreCulling, BadOptimizations, Ferrite-Core, ImmediatelyFast, EntityCulling. Chunky/C2ME are 1.20.1-only bundles. Revisit after a device test."
     }
   ]
 }
