@@ -315,59 +315,98 @@ public class Installer {
         if (version == null) {
             throw new IOException("Visor QuestCraft does not support Minecraft " + instance.versionName);
         }
+        if (!version.questReady) {
+            // TODO(User): flip questReady in versions.json once a Quest Visor build exists for this version.
+            throw new IOException("Visor QuestCraft has no Quest Visor build for Minecraft " + instance.versionName + " yet");
+        }
 
         applyQuestDefaults(instance);
         File mods = new File(instance.gameDir, "mods");
         mods.mkdirs();
-        for (Artifact artifact : version.downloadedMods) {
+        List<Artifact> downloadedMods = installableMods(version.id, version.downloadedMods);
+        List<Artifact> bundledMods = installableMods(version.id, version.bundledMods);
+        for (Artifact artifact : downloadedMods) {
             installDownloadedMod(mods, artifact);
         }
 
-        // Preserve the original Vivecraft-to-Visor cleanup behaviour.
+        // Mods the table replaces for this version: Vivecraft, Visor, VisorEssentials, this
+        // version's bundled perf mods and its removeMods. Mods with no entry for this version are
+        // left alone (for 1.20.1 this is exactly the original hard-coded list).
+        List<String> replaced = new ArrayList<>();
+        for (Artifact artifact : bundledMods) {
+            replaced.add(artifact.slug);
+        }
+        replaced.addAll(version.removeMods);
+
         File[] existing = mods.listFiles();
         if (existing != null) {
             for (File file : existing) {
                 String name = file.getName().toLowerCase();
-                if (name.contains("vivecraft")
+                boolean remove = name.contains("vivecraft")
                         || name.equals("visor.jar")
-                        || name.equals("visoressentials.jar")
-                        || name.contains("moreculling")
-                        || name.contains("noisium")
-                        || name.contains("badoptimizations")
-                        || name.contains("chunky")
-                        || name.contains("c2me")
-                        || name.contains("voxy")) {
+                        || name.equals("visoressentials.jar");
+                for (String slug : replaced) {
+                    remove |= name.contains(slug.toLowerCase());
+                }
+                if (remove) {
                     file.delete();
                 }
             }
         }
 
-        writeBundledArtifact(activity, mods, version.visor);
-        writeBundledArtifact(activity, mods, version.visorEssentials);
-        for (Artifact artifact : version.bundledMods) {
-            writeBundledArtifact(activity, mods, artifact);
+        installVisorArtifact(activity, mods, version.visor);
+        installVisorArtifact(activity, mods, version.visorEssentials);
+        for (Artifact artifact : bundledMods) {
+            installVisorArtifact(activity, mods, artifact);
         }
 
         ArrayList<ProjectInfo> projects = new ArrayList<>();
         if (instance.extProjects != null) {
             projects.addAll(Arrays.asList(instance.extProjects));
         }
-        projects.removeIf(project -> project.slug.equalsIgnoreCase("Vivecraft")
-                || project.slug.equalsIgnoreCase("Visor")
-                || project.slug.equalsIgnoreCase("VisorEssentials")
-                || project.slug.equalsIgnoreCase("MoreCulling")
-                || project.slug.equalsIgnoreCase("Noisium")
-                || project.slug.equalsIgnoreCase("BadOptimizations")
-                || project.slug.equalsIgnoreCase("Chunky")
-                || project.slug.equalsIgnoreCase("C2ME")
-                || project.slug.equalsIgnoreCase("Voxy"));
+        projects.removeIf(project -> {
+            if (project.slug.equalsIgnoreCase("Vivecraft")
+                    || project.slug.equalsIgnoreCase("Visor")
+                    || project.slug.equalsIgnoreCase("VisorEssentials")) {
+                return true;
+            }
+            for (String slug : replaced) {
+                if (project.slug.equalsIgnoreCase(slug)) return true;
+            }
+            return false;
+        });
 
         projects.add(toProjectInfo(version.visor));
         projects.add(toProjectInfo(version.visorEssentials));
-        for (Artifact artifact : version.bundledMods) {
+        for (Artifact artifact : bundledMods) {
             projects.add(toProjectInfo(artifact));
         }
         instance.extProjects = projects.toArray(new ProjectInfo[0]);
+    }
+
+    /** Drops entries that are incomplete (no SHA-1, asset or URL yet) with a log line instead of failing the install. */
+    private static List<Artifact> installableMods(String versionId, List<Artifact> artifacts) {
+        List<Artifact> installable = new ArrayList<>();
+        if (artifacts == null) return installable;
+        for (Artifact artifact : artifacts) {
+            if (VisorVersionTable.isInstallableArtifact(artifact)) {
+                installable.add(artifact);
+            } else {
+                Logger.getInstance().appendToLog("Skipping mod "
+                        + (artifact == null ? "<null>" : artifact.slug)
+                        + " for Minecraft " + versionId + ": incomplete entry in versions.json");
+            }
+        }
+        return installable;
+    }
+
+    /** Installs a table artifact from the APK assets when it has an assetPath, otherwise downloads it. */
+    private static void installVisorArtifact(Activity activity, File mods, Artifact artifact) throws IOException {
+        if (artifact.assetPath != null && !artifact.assetPath.trim().isEmpty()) {
+            writeBundledArtifact(activity, mods, artifact);
+        } else {
+            installDownloadedMod(mods, artifact);
+        }
     }
 
     private static void writeBundledArtifact(Activity activity, File mods, Artifact artifact) throws IOException {

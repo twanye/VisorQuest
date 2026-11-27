@@ -22,8 +22,18 @@ public final class VisorVersionTable {
 
     public static final class VersionEntry {
         public String id;
+        /**
+         * True only when a Quest build of Visor exists for this version. Entries that are false stay
+         * in the table (loader pin, planning data) but are hidden from the launcher and refused by
+         * Installer.installVisor. Gson leaves a missing field false, so new entries start hidden.
+         */
+        public boolean questReady;
         public int javaMajor;
         public String fabricLoaderVersion;
+        /** Informational: the Fabric API build this version is tested against (installed via mods.json coreMods). */
+        public Artifact fabricApi;
+        /** Extra mod slugs to remove from the instance for this version (in addition to Vivecraft/Visor/VisorEssentials). */
+        public List<String> removeMods;
         public Artifact visor;
         public Artifact visorEssentials;
         public List<Artifact> bundledMods;
@@ -57,21 +67,17 @@ public final class VisorVersionTable {
             }
             for (VersionEntry entry : table.versions) {
                 if (entry == null || isBlank(entry.id) || entry.javaMajor <= 0
-                        || isBlank(entry.fabricLoaderVersion) || isBlank(entry.lwjglBundleId)
-                        || !isValidArtifact(entry.visor) || !isValidArtifact(entry.visorEssentials)) {
+                        || isBlank(entry.fabricLoaderVersion) || isBlank(entry.lwjglBundleId)) {
                     throw new IOException("Invalid version entry in " + ASSET_NAME);
                 }
                 if (entry.bundledMods == null) entry.bundledMods = new ArrayList<>();
                 if (entry.downloadedMods == null) entry.downloadedMods = new ArrayList<>();
-                for (Artifact artifact : entry.bundledMods) {
-                    if (!isValidArtifact(artifact) || isBlank(artifact.assetPath)) {
-                        throw new IOException("Invalid bundled mod in " + ASSET_NAME + " for " + entry.id);
-                    }
-                }
-                for (Artifact artifact : entry.downloadedMods) {
-                    if (!isValidArtifact(artifact) || isBlank(artifact.url)) {
-                        throw new IOException("Invalid downloaded mod in " + ASSET_NAME + " for " + entry.id);
-                    }
+                if (entry.removeMods == null) entry.removeMods = new ArrayList<>();
+                // Visor and VisorEssentials must be installable before an entry can be offered.
+                if (entry.questReady
+                        && (!isInstallableArtifact(entry.visor) || !isInstallableArtifact(entry.visorEssentials))) {
+                    throw new IOException("Quest-ready entry " + entry.id + " in " + ASSET_NAME
+                            + " has no installable Visor/VisorEssentials artifact");
                 }
             }
             return table;
@@ -86,11 +92,12 @@ public final class VisorVersionTable {
         return null;
     }
 
+    /** Versions the launcher may offer: only entries with a Quest Visor build. */
     public String[] getSupportedVersions() {
         if (versions == null) return new String[0];
         List<String> supported = new ArrayList<>();
         for (VersionEntry entry : versions) {
-            if (entry != null && !isBlank(entry.id)) supported.add(entry.id);
+            if (entry != null && entry.questReady && !isBlank(entry.id)) supported.add(entry.id);
         }
         return supported.toArray(new String[0]);
     }
@@ -102,6 +109,11 @@ public final class VisorVersionTable {
     private static boolean isValidArtifact(Artifact artifact) {
         return artifact != null && !isBlank(artifact.slug) && !isBlank(artifact.artifactName)
                 && !isBlank(artifact.version) && isSha1(artifact.sha1);
+    }
+
+    /** A bundled artifact needs an asset path, a downloaded one a URL; both need a SHA-1. */
+    public static boolean isInstallableArtifact(Artifact artifact) {
+        return isValidArtifact(artifact) && (!isBlank(artifact.assetPath) || !isBlank(artifact.url));
     }
 
     private static boolean isSha1(String value) {
