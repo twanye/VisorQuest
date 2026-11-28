@@ -240,6 +240,35 @@ public class MinecraftInstances {
             extProjects = newMods.toArray(new ProjectInfo[0]);
         }
 
+        /**
+         * Downloads extProjects whose file is missing, for versions upstream mods.json does not list.
+         * bundled:// entries (Visor, VisorEssentials, perf mods) are installed by Installer.installVisor.
+         * One failed download is logged and does not stop the others.
+         */
+        private void downloadUserMods() {
+            for (ProjectInfo project : extProjects) {
+                if (project == null || project.download_link == null
+                        || project.download_link.startsWith("bundled://")) {
+                    continue;
+                }
+                boolean legacyMod = project.fileName == null;
+                boolean isMod = "mod".equals(project.type);
+                File file = new File(
+                        gameDir + (isMod ? "/mods" : "/resourcepacks"),
+                        (legacyMod ? project.slug : project.fileName) + (isMod ? ".jar" : ".zip")
+                );
+                if (file.exists()) {
+                    continue;
+                }
+                try {
+                    Logger.getInstance().appendToLog("Downloading " + project.slug + " for " + versionName);
+                    DownloadUtils.downloadFile(project.download_link, file, 0);
+                } catch (Exception e) {
+                    Logger.getInstance().appendToLog("Failed to download " + project.slug + ": " + e);
+                }
+            }
+        }
+
         public void updateMods(MinecraftInstances instances) {
             if(extProjects == null) {
                 extProjects = new ProjectInfo[0];
@@ -253,10 +282,12 @@ public class MinecraftInstances {
                 }
 
                 File modsFolder = new File(gameDir + "/mods");
+                boolean listed = false;
                 for (ModsJson.Version newVersion : newMods.versions) {
                     if (!versionName.equals(newVersion.name)) {
                         continue;
                     }
+                    listed = true;
 
                     ArrayList<ProjectInfo> mergedNewMods = new ArrayList<>(Arrays.asList(newVersion.coreMods));
                     if(defaultMods)
@@ -267,6 +298,11 @@ public class MinecraftInstances {
                     else
                         updateModByType(mergedNewMods);
                     break;
+                }
+                if (!listed) {
+                    // Upstream mods.json has no entry for this version (26.2), so the loop above
+                    // never downloads the mods added from the launcher's mods menu. Do it here.
+                    downloadUserMods();
                 }
 
                 GsonUtils.objectToJsonFile(Constants.USER_HOME + "/instances.json", instances);
