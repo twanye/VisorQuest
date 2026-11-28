@@ -102,7 +102,7 @@
     },
     {
       "id": "1.21.1",
-      "questReady": false,
+      "questReady": true,
       "javaMajor": 21,
       "fabricLoaderVersion": "0.20.1",
       "fabricApi": {
@@ -118,30 +118,91 @@
       "visor": {
         "slug": "Visor",
         "artifactName": "Visor.jar",
-        "version": "0.6.1+mc1.21.1-fabric",
-        "assetPath": null,
-        "url": null,
-        "sha1": null,
-        "size": 0,
-        "downloadLink": null,
+        "version": "0.6.1+questcraft",
+        "assetPath": "mods/1.21.1/Visor.jar",
+        "sha1": "db4b3db1eae163253f4bb4a982418b5df4c21f6b",
+        "size": 5076880,
+        "downloadLink": "bundled://visor",
         "type": "mod",
-        "todo": "TODO(User): no Quest build of Visor for 1.21.1 exists yet (needs P1: coah80's Quest patches ported to Visor 0.6.1 / AtumVR 1.14). Upstream Modrinth jar FJN2Te69 (Visor-0.6.1+mc1.21.1-fabric.jar, sha1 5215f85800f3ce5b5dc181846d5111fb7748ee4c) has no Android/Quest code and must not be used. Fill assetPath/url, sha1 and size from the real Quest build, then set questReady to true."
+        "source": "Visor-0.6.1+questcraft+mc1.21.1-fabric.jar from CI workflow visor-quest-build.yml run 46077982516 (hark/mc-1.21.1 69dfc2d), renamed to Visor.jar. MC >=1.21 <1.21.2, Java >=21, no nested lwjgl-vulkan. Compile-checked only, untested on device."
       },
       "visorEssentials": {
         "slug": "VisorEssentials",
         "artifactName": "VisorEssentials.jar",
         "version": "0.6.1+mc1.21.1-fabric",
-        "url": "https://cdn.modrinth.com/data/R4fBkFEC/versions/xcYlq5Zb/VisorEssentials-0.6.1%2Bmc1.21.1-fabric.jar",
+        "assetPath": "mods/1.21.1/VisorEssentials.jar",
         "sha1": "e5641e7a1485032c74b4f837705e6abd438256d6",
         "size": 346346,
-        "downloadLink": "https://cdn.modrinth.com/data/R4fBkFEC/versions/xcYlq5Zb/VisorEssentials-0.6.1%2Bmc1.21.1-fabric.jar",
+        "downloadLink": "bundled://visor-essentials",
         "type": "mod",
-        "todo": "Stock Modrinth build (VisorEssentials has no Android code); untested on Quest. Requires visor >= 0.6.1."
+        "source": "Modrinth R4fBkFEC version xcYlq5Zb (VisorEssentials-0.6.1+mc1.21.1-fabric.jar), renamed to VisorEssentials.jar. Requires visor >=0.6.1. Untested on Quest."
       },
       "bundledMods": [],
       "downloadedMods": [],
-      "perfModsTodo": "TODO(User): no VisorQuest perf mods pinned for 1.21.1. Upstream QuestCraft mods.json defaultMods for 1.21.1 already lists Noisium, MoreCulling, BadOptimizations and ImmediatelyFast; C2ME and Chunky are not added. Decide per mod after a device test.",
-      "lwjglBundleId": "3.3.3-snapshot"
+      "lwjglBundleId": "3.3.3-snapshot",
+      "extraJvmArgs": [
+        "-Djna.boot.library.name=jnidispatch704"
+      ],
+      "runtimeNote": "Default runtime (runtimes/JRE, JRE 22, LightThinWrapper). 1.21.1 ships JNA 5.14 (native API 7.0.x), which rejects the default libjnidispatch.so (6.1.2, kept for 1.20.1's JNA 5.12.1), so it loads libjnidispatch704.so (JNA native 7.0.4). Untested on device.",
+      "perfModsNote": "No VisorQuest-bundled perf mods for 1.21.1: upstream QuestCraft mods.json (QuestCraft-6.0.0) defaultMods for 1.21.1 already installs Sodium, ModernFix, Noisium, Lithium, MoreCulling, BadOptimizations, Ferrite-Core, ImmediatelyFast, EntityCulling. Chunky/C2ME are 1.20.1-only bundles. Revisit after a device test."
+    },
+    {
+      "id": "26.2",
+      "questReady": true,
+      "javaMajor": 25,
+      "fabricLoaderVersion": "0.20.1",
+      "fabricApi": {
+        "slug": "Fabric-API",
+        "artifactName": "fabric-api-0.161.0+26.2.jar",
+        "version": "0.161.0+26.2",
+        "url": "https://cdn.modrinth.com/data/P7dR8mSH/versions/ewUK83HI/fabric-api-0.161.0%2B26.2.jar",
+        "sha1": "332da34ebb72171e603a0c538de17f4c54ea9e29",
+        "size": 2566123,
+        "type": "mod"
+      },
+      "installFabricApi": true,
+      "removeMods": [],
+      "visor": {
+        "slug": "Visor",
+        "artifactName": "Visor.jar",
+        "version": "0.6.1+questcraft",
+        "assetPath": "mods/26.2/Visor.jar",
+        "sha1": "97f9945f9d6dc1f70ced3a7008b4c7303b4dce45",
+        "size": 5019270,
+        "downloadLink": "bundled://visor",
+        "type": "mod",
+        "source": "Visor-0.6.1+questcraft+mc26.2-fabric.jar from CI workflow visor-quest-build.yml run 46081665517 (perplexity/workspace 7e7877e), renamed to Visor.jar. MC >=26.2 <26.3, Java >=25, requires fabric-api, nests lwjgl-openxr-quest-3.3.3, no nested lwjgl-vulkan. Compile-checked only, untested on device."
+      },
+      "visorEssentials": {
+        "slug": "VisorEssentials",
+        "artifactName": "VisorEssentials.jar",
+        "version": "0.6.1+mc26.2-fabric",
+        "assetPath": "mods/26.2/VisorEssentials.jar",
+        "sha1": "3dafec24245f4000397c9edd1f39096e75998c3c",
+        "size": 252292,
+        "downloadLink": "bundled://visor-essentials",
+        "type": "mod",
+        "source": "Modrinth R4fBkFEC version AgBlduJ0 (VisorEssentials-0.6.1+mc26.2-fabric.jar), renamed to VisorEssentials.jar. Requires visor >=0.6.1, Java >=25, fabricloader >=0.19.5. Untested on Quest."
+      },
+      "bundledMods": [],
+      "downloadedMods": [],
+      "lwjglBundleId": "3.3.3-qcp26",
+      "lwjglAssetPath": "lwjgl/lwjgl-glfw-classes-26.jar",
+      "lwjglVulkanClasses": true,
+      "runtime": {
+        "id": "JRE-25",
+        "url": "https://github.com/MisterEnglishDev/QuestCraftPlus-Pojlib/releases/download/jre25-android-arm64/JRE25.zip",
+        "sha256": "221acb8ef910d17435f9539db454a7a293f548430f289eb81446b58004f2a4f1",
+        "size": 48955276
+      },
+      "renderer": "MobileGlues",
+      "extraJvmArgs": [
+        "--sun-misc-unsafe-memory-access=allow",
+        "--enable-native-access=ALL-UNNAMED",
+        "-Djna.boot.library.name=jnidispatch704"
+      ],
+      "runtimeNote": "Java 25 (OpenJDK 25.0.4.1.1 android-arm64 build from MisterEnglishDev/QuestCraftPlus-Pojlib release jre25-android-arm64; no published build source yet, testing only) in runtimes/JRE-25 next to the default runtimes/JRE. Renderer MobileGlues (libmobileglues.so, LGPL-2.1, from QuestCraftPlusPlus/Pojlib QuestCraft-6.0.1). LWJGL: 3.3.3 GLFW shim + QuestCraftPlus+ 26.x patches; lwjgl-vulkan Java classes kept because the 26.x client constructs its Vulkan backend class (OpenGL is tried first). Untested on device. JNA: 26.2 ships JNA 5.17 (native API 7.0.x) so it loads libjnidispatch704.so (JNA native 7.0.4, same binary as QuestCraftPlusPlus/Pojlib QuestCraft-6.0.1); the default libjnidispatch.so (6.1.2) is unchanged for 1.20.1/1.21.1.",
+      "perfModsNote": "No perf mods for 26.2 yet: upstream QuestCraft mods.json has no 26.2 entry. Fabric API comes from installFabricApi above."
     }
   ]
 }

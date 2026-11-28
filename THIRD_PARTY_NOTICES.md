@@ -44,6 +44,12 @@ It includes or builds on the third-party open-source components below. Each keep
 - License: Apache License 2.0
 - Obligations: include the Apache-2.0 text, keep copyright headers and any NOTICE file, and mark modified files.
 
+### 4a. Minecraft 26.x runtime pieces (branch `perplexity/workspace`)
+- **MobileGlues** (`Pojlib/src/main/jniLibs/arm64-v8a/libmobileglues.so`, 26.x renderer): https://github.com/MobileGL-Dev/MobileGlues, LGPL-2.1. Binary taken unchanged from QuestCraftPlusPlus/Pojlib branch `QuestCraft-6.0.1` (LFS oid `b730cf56…`). Obligations: keep the notice, source available, user can replace the library.
+- **JNA native 7.0.4** (`libjnidispatch704.so`, 1.21.1 and 26.2): https://github.com/java-native-access/jna, Apache-2.0 / LGPL-2.1 dual. Binary from QuestCraft-6.0.1 (LFS oid `abc26e99…`).
+- **QuestCraftPlus+ patches** in `Pojlib/jre_lwjgl3glfw/src/mc26` and `libs-mc26` (GLFW 3.4 methods, IME callbacks, MemoryUtil/STB shims): https://github.com/MisterEnglishDev/QuestCraftPlus-Pojlib, LGPL-3.0, on LWJGL (BSD-3-Clause).
+- **JRE 25** (downloaded at first 26.2 launch, not bundled): `JRE25.zip` from the MisterEnglishDev/QuestCraftPlus-Pojlib release `jre25-android-arm64`, OpenJDK (GPL-2.0 with Classpath Exception). No published build source found [unverified]; testing only until that is sorted.
+
 ## Downloaded at runtime (not bundled)
 
 Pojlib installs these per instance from a version manifest at first launch. They are not shipped inside the APK.

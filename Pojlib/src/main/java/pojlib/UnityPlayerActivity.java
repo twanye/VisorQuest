@@ -45,6 +45,7 @@ import pojlib.input.GrabListener;
 import pojlib.input.LwjglGlfwKeycode;
 import pojlib.input.gamepad.DefaultDataProvider;
 import pojlib.input.gamepad.Gamepad;
+import pojlib.install.RuntimeProfile;
 import pojlib.util.Constants;
 import pojlib.util.FileUtil;
 import pojlib.util.Logger;
@@ -120,9 +121,16 @@ public class UnityPlayerActivity extends ActivityGroup implements IUnityPlayerLi
     }
 
     public static String installLWJGL(Activity activity) throws IOException {
+        return installLWJGL(activity, RuntimeProfile.LEGACY);
+    }
+
+    /** Copies the version's GLFW/LWJGL bundle (versions.json lwjglAssetPath) out of the APK. */
+    public static String installLWJGL(Activity activity, RuntimeProfile profile) throws IOException {
         Logger.getInstance().appendToLog("Checking LWJGL");
-        File lwjgl = new File(Constants.USER_HOME + "/lwjgl3/lwjgl-glfw-classes.jar");
-        String lwjglAsset = "lwjgl/lwjgl-glfw-classes.jar";
+        File lwjgl = RuntimeProfile.LEGACY_LWJGL_ASSET.equals(profile.lwjglAsset)
+                ? new File(Constants.USER_HOME + "/lwjgl3/lwjgl-glfw-classes.jar")
+                : profile.lwjglFile();
+        String lwjglAsset = profile.lwjglAsset;
 
         if (!FileUtil.matchingAssetFile(activity, lwjglAsset, lwjgl)) {
             FileUtil.copyAssetToFile(activity, lwjglAsset, lwjgl);

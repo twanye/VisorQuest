@@ -67,7 +67,17 @@ void pojavTerminate() {
 }
 
 void dlsym_egl() {
-    void* handle = dlopen("libltw.so", RTLD_NOW);
+    // JREUtils sets POJLIB_RENDERER per Minecraft version (versions.json "renderer"):
+    // MobileGlues for 26.x (desktop GL 4.x over GLES), LightThinWrapper for everything else.
+    const char* renderer = getenv("POJLIB_RENDERER");
+    const char* renderLib = (renderer != NULL && strcmp(renderer, "MobileGLUES") == 0)
+            ? "libmobileglues.so" : "libltw.so";
+    printf("EGLBridge: loading %s\n", renderLib);
+    void* handle = dlopen(renderLib, RTLD_NOW);
+    if (handle == NULL) {
+        printf("EGLBridge: dlopen(%s) failed: %s\n", renderLib, dlerror());
+        return;
+    }
     eglGetProcAddress_p = (eglGetProcAddress_t*) dlsym(handle, "eglGetProcAddress");
     eglGetDisplay_p = (eglGetDisplay_t*) eglGetProcAddress_p("eglGetDisplay");
     eglInitialize_p = (eglInitialize_t*) eglGetProcAddress_p("eglInitialize");
@@ -88,6 +98,10 @@ void* pojavGetCurrentContext() {
 
 int xrEglInit() {
     dlsym_egl();
+    if (eglGetProcAddress_p == NULL || eglGetDisplay_p == NULL) {
+        printf("EGLBridge: renderer library has no usable EGL entry points\n");
+        return 0;
+    }
 
     if (xrEglDisplay == NULL || xrEglDisplay == EGL_NO_DISPLAY) {
         xrEglDisplay = eglGetDisplay_p(EGL_DEFAULT_DISPLAY);

@@ -35,6 +35,7 @@ import pojlib.util.VLoader;
 import pojlib.util.download.DownloadManager;
 import pojlib.util.json.MinecraftInstances;
 import pojlib.util.json.ModsJson;
+import pojlib.install.RuntimeProfile;
 import pojlib.util.json.ProjectInfo;
 import pojlib.util.GsonUtils;
 import pojlib.util.JREUtils;
@@ -191,10 +192,11 @@ public class InstanceHandler {
         {
             try {
                 CompletableFuture<String> clientClasspath = Installer.installClient(minecraftVersionInfo, gameDir);
-                CompletableFuture<String> minecraftClasspath = Installer.installLibraries(minecraftVersionInfo, gameDir);
-                CompletableFuture<String> modLoaderClasspath = Installer.installLibraries(finalModLoaderVersionInfo, gameDir);
+                RuntimeProfile runtime = RuntimeProfile.forVersion(activity, minecraftVersion);
+                CompletableFuture<String> minecraftClasspath = Installer.installLibraries(minecraftVersionInfo, gameDir, runtime);
+                CompletableFuture<String> modLoaderClasspath = Installer.installLibraries(finalModLoaderVersionInfo, gameDir, runtime);
                 CompletableFuture<String> assetsFuture = Installer.installAssets(minecraftVersionInfo, gameDir);
-                String lwjgl = UnityPlayerActivity.installLWJGL(activity);
+                String lwjgl = UnityPlayerActivity.installLWJGL(activity, runtime);
 
                 CompletableFuture<Void> installFuture = CompletableFuture.allOf(clientClasspath, minecraftClasspath, modLoaderClasspath, assetsFuture);
                 installFuture.get();
@@ -264,10 +266,11 @@ public class InstanceHandler {
 
             String gameDir = Constants.USER_HOME;
             String clientClasspath = Installer.installClient(minecraftVersionInfo, gameDir).get();
-            String minecraftClasspath = Installer.installLibraries(minecraftVersionInfo, gameDir).get();
-            String modLoaderClasspath = Installer.installLibraries(modLoaderVersionInfo, gameDir).get();
+            RuntimeProfile runtime = RuntimeProfile.forVersion(activity, instance.versionName);
+            String minecraftClasspath = Installer.installLibraries(minecraftVersionInfo, gameDir, runtime).get();
+            String modLoaderClasspath = Installer.installLibraries(modLoaderVersionInfo, gameDir, runtime).get();
             String assetsDir = Installer.installAssets(minecraftVersionInfo, gameDir).get();
-            String lwjgl = UnityPlayerActivity.installLWJGL(activity);
+            String lwjgl = UnityPlayerActivity.installLWJGL(activity, runtime);
 
             if (instance.classpath == null) {
                 instance.classpath = clientClasspath + File.pathSeparator + minecraftClasspath + File.pathSeparator + modLoaderClasspath + File.pathSeparator + lwjgl;
